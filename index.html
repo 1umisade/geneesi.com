@@ -376,7 +376,7 @@
   <h2>Ideataulu</h2>
   <table>
     <tr><td>Uusi lappu</td><td>Keskiklikkaa tyhjää kohtaa, tuplaklikkaa tai paina N</td></tr>
-    <tr><td>Muokkaa tekstiä</td><td>Klikkaa lappua. Esc tai klikkaus muualle lopettaa.</td></tr>
+    <tr><td>Muokkaa tekstiä</td><td>Klikkaa lappua. Enter tallentaa, Shift + Enter tekee uuden rivin.</td></tr>
     <tr><td>Määräpäivä</td><td>Lapun yläreunan laatikko. Uudella lapulla kuukauden päästä. Lappu on vihreä kun aikaa on kuukausi tai enemmän, sitten keltainen, oranssi ja määräpäivänä punainen. Klikkaa laatikkoa muokataksesi.</td></tr>
     <tr><td>Tila</td><td>Klikkaa lapun kulman merkkiä: uusi, työn alla, valmis. </td></tr>
     <tr><td>Kuva</td><td>Liitä leikepöydältä (Ctrl + V) tai pudota kuvatiedosto taululle</td></tr>
@@ -751,7 +751,7 @@ function startEdit(id, frameTitle = false, cx, cy) {
     render(); commit();
   };
   const key = ev => {
-    if (ev.key === 'Escape' || (ev.key === 'Enter' && (frameTitle || ev.ctrlKey || ev.metaKey))) { ev.preventDefault(); t.blur(); }
+    if (ev.key === 'Escape' || (ev.key === 'Enter' && !ev.shiftKey)) { ev.preventDefault(); t.blur(); }
     ev.stopPropagation();
   };
   t.addEventListener('blur', done); t.addEventListener('keydown', key);
