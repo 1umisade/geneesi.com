@@ -796,7 +796,7 @@ function hitInfo(target) {
 
 function framedContents(frame) {
   const f = bounds(frame);
-  return board.items.filter(i => i.kind !== 'frame' && i !== frame && (() => { const c = center(bounds(i)); return c.x > f.x && c.x < f.x + f.w && c.y > f.y && c.y < f.y + f.h; })());
+  return board.items.filter(i => i !== frame && (() => { const c = center(bounds(i)); return c.x > f.x && c.x < f.x + f.w && c.y > f.y && c.y < f.y + f.h; })());
 }
 
 vp.addEventListener('contextmenu', e => e.preventDefault());
@@ -1457,12 +1457,12 @@ renderRoutine();
 /* ---------- start ---------- */
 /* ---------- routine section on the board ---------- */
 const ROUTINE_COLOR = { move: '#bdeab0', study: '#b5d8f7', meal: '#ffc48a', calm: '#d6c4f2' };
-function routineSectionItems(items, routine) {
+function routineSectionItems(items, routine, pos) {
   if (!routine.length || items.some(i => i.kind === 'frame' && i.routine)) return;
   const CELL = 170, GAP = 26, PAD = 30, TITLE = 76, COLS = 4;
   const W = PAD * 2 + COLS * CELL + (COLS - 1) * GAP, rows = Math.ceil(routine.length / COLS);
   const b = allBounds(items.filter(i => i.kind !== 'stroke'));
-  const x0 = b ? Math.round(b.x + b.w + 200) : 0, y0 = b ? Math.round(b.y) : 0;
+  const x0 = pos ? pos.x : b ? Math.round(b.x + b.w + 200) : 0, y0 = pos ? pos.y : b ? Math.round(b.y) : 0;
   items.unshift({ id: uid(), kind: 'frame', routine: true, x: x0, y: y0, w: W, h: TITLE + rows * (CELL + GAP) - GAP + PAD, title: 'Päivärutiini', color: '#ffffff' });
   const [h, mm] = (load('rutiini-aloitus', '07:00') || '07:00').split(':').map(Number);
   let t = h * 60 + mm;
@@ -1484,6 +1484,23 @@ function resetRoutine(frameId) {
   }
   render(); commit(); toast(n ? 'Rutiini nollattu' : 'Rutiini on jo alussa');
 }
+/* runs on every unlock: keeps routine sections in step with the routine, and organises the Ideaflip board once */
+function migrateBoards() {
+  const organize = !load('jarjestely-v1', false);
+  for (const e of index) {
+    const b = board && board.id === e.id ? board : load('ideataulu-' + e.id, null);
+    if (!b || !Array.isArray(b.items)) continue;
+    let changed = syncRoutineSection(b.items, ROUTINE);
+    if (organize && e.name === 'Ideaflip') {
+      fixPins(b.items);
+      const assign = organizeIdeaflip(b.items);
+      if (assign) { tidyItems(b.items, assign); changed = true; }
+    }
+    if (!changed) continue;
+    if (b === board) { sel.clear(); render(); commit(); fitView(); } else save('ideataulu-' + b.id, b);
+  }
+  if (organize) save('jarjestely-v1', true);
+}
 function ensureRoutineSection() {
   if (load('rutiini-osio-v1', false) || !ROUTINE.length) return;
   let done = false;
@@ -1498,8 +1515,66 @@ function ensureRoutineSection() {
   if (done) save('rutiini-osio-v1', true);
 }
 
+function syncRoutineSection(items, routine) {
+  const f = items.find(i => i.kind === 'frame' && i.routine);
+  if (!f || !routine.length) return false;
+  const notes = items.filter(i => i.kind === 'note' && i.routine);
+  const same = notes.length === routine.length && notes.every(n => routine[n.routine - 1] && n.text.split('\n')[0] === routine[n.routine - 1].name);
+  if (same) return false;
+  const pos = { x: f.x, y: f.y }, drop = new Set([f, ...notes]);
+  const keep = items.filter(i => !drop.has(i));
+  items.length = 0; items.push(...keep);
+  routineSectionItems(items, routine, pos);
+  return true;
+}
+
+/* ---------- one-time organising of the Ideaflip board ---------- */
+const SOLUKKO_LOOSE = new Set(['kuvapankki solukkoon', 'vastausnäppäimet ei pilloon', 'miksei monessakaan ole ympyrää kertoimsymbolissa?',
+  'vaikutusalue, EI KENTTÄ', 'kortti: varaus', 'solukko-kalenterin uudet kurssit', 'solukko-kalenterin visa-ajat',
+  'miksei 1- ole tummemman sininen?', 'kaavan pitää alkaa oikealta pystyakselilta', 'pitäis olla tunnus: S', 'pitäis olla d_pla', 'missä webcyte?',
+  'joitain kertoimia pitää kutsua suhdeluvuiksi ja niiden symbolit pitäisi olla (mikä?) ja luovutaan ympyrästä ja käytetään jotain gothic fonttia']);
+/* where each comment note sat on its screenshot in the original board: image src length, x, y, w, h as fractions of the image */
+const PINS = {
+  'missä webcyte?': [13775, 0.2208, 0.5036, 0.3418, 0.5791],
+  'pitäis olla d_pla': [16071, 0.3448, 0.6006, 0.3347, 0.4985],
+  'pitäis olla tunnus: S': [17695, 0.3556, 0.4669, 0.3452, 0.5079],
+  'kaavan pitää alkaa oikealta pystyakselilta': [12139, 0.5022, 0.3408, 0.365, 0.4535],
+  'miksei monessakaan ole ympyrää kertoimsymbolissa?': [15587, 0.2213, 0.2964, 0.3579, 0.575],
+  'joitain kertoimia pitää kutsua suhdeluvuiksi ja niiden symbolit pitäisi olla (mikä?) ja luovutaan ympyrästä ja käytetään jotain gothic fonttia': [14759, 0.3173, 0.4808, 0.5288, 0.387],
+};
+function fixPins(items) {
+  const imgs = items.filter(i => i.kind === 'image');
+  for (const n of items) {
+    if (n.kind !== 'note' || !PINS[(n.text || '').trim()]) continue;
+    const [len, rx, ry, rw, rh] = PINS[n.text.trim()];
+    const im = imgs.find(m => (m.src || '').length === len);
+    if (!im) continue;
+    n.x = Math.round(im.x + rx * im.w); n.y = Math.round(im.y + ry * im.h); n.w = Math.round(rw * im.w); n.h = Math.round(rh * im.h);
+  }
+}
+function organizeIdeaflip(items) {
+  const frames = items.filter(i => i.kind === 'frame');
+  const sol = frames.find(f => f.title === 'solukko');
+  if (!sol || frames.some(f => f.title === 'juoksevat asiat')) return null;
+  const centerIn = (it, f) => { const b = bounds(it), cx = b.x + b.w / 2, cy = b.y + b.h / 2; return cx > f.x && cx < f.x + f.w && cy > f.y && cy < f.y + f.h; };
+  const content = items.filter(i => i.kind === 'note' || i.kind === 'text' || i.kind === 'image');
+  const imgs = content.filter(i => i.kind === 'image');
+  const pinnedTo = new Map();
+  for (const n of content) if (n.kind === 'note') { const im = imgs.find(m => centerIn(n, m)); if (im) pinnedTo.set(n, im); }
+  const loose = content.filter(i => !pinnedTo.has(i) && !frames.some(f => centerIn(i, f)));
+  /* new frames start far away so their outline swallows nothing; tidy puts them in place */
+  const far = -1e6, CW = 818;
+  const parent = { id: uid(), kind: 'frame', title: 'juoksevat asiat', color: '#ffffff', x: far, y: far, w: CW * 2 + 100, h: 400 };
+  const today = { id: uid(), kind: 'frame', title: 'Tänään', color: '#ffffff', parent: parent.id, x: far + 30, y: far + 76, w: CW, h: 320 };
+  const later = { id: uid(), kind: 'frame', title: 'Joskus', color: '#ffffff', parent: parent.id, x: far + 900, y: far + 76, w: CW, h: 320 };
+  items.unshift(parent, today, later);
+  const assign = new Map();
+  for (const it of loose) assign.set(it, it.kind === 'image' || SOLUKKO_LOOSE.has((it.text || '').trim()) ? sol : later);
+  return assign;
+}
+
 /* ---------- tidy ---------- */
-function tidyItems(items) {
+function tidyItems(items, assign) {
   const CELL = 170, GAP = 26, PAD = 30, TITLE = 76, COLS = 4, FGAP = 90, PER_ROW = 3;
   const FW = PAD * 2 + COLS * CELL + (COLS - 1) * GAP;
   for (const it of items) if (it.kind === 'note' && it.status === 'cancel') it.status = 'new';
@@ -1516,7 +1591,7 @@ function tidyItems(items) {
   const groups = new Map(frames.map(f => [f, []])), loose = [];
   for (const it of content) {
     if (pinned.has(it)) continue;
-    const f = frames.filter(fr => inside(it, fr)).sort((a, b) => a.w * a.h - b.w * b.h)[0];
+    const f = (assign && assign.get(it)) || frames.filter(fr => inside(it, fr)).sort((a, b) => a.w * a.h - b.w * b.h)[0];
     (f ? groups.get(f) : loose).push(it);
   }
   const order = (a, b) => (Math.round(a.y / 120) - Math.round(b.y / 120)) || (a.x - b.x);
@@ -1539,13 +1614,28 @@ function tidyItems(items) {
     if (imgs.length) y += rowH + GAP;
     return Math.max(0, y - y0 - (list.length ? GAP : 0));
   };
-  let x = 0, y = 0, rowMax = 0, col = 0;
-  for (const f of frames) {
-    if (col === PER_ROW) { col = 0; x = 0; y += rowMax + FGAP; rowMax = 0; }
-    const list = groups.get(f);
-    const h = place(list, x + PAD, y + TITLE, COLS);
-    f.x = x; f.y = y; f.w = FW; f.h = Math.max(320, TITLE + h + PAD);
-    rowMax = Math.max(rowMax, f.h); x += FW + FGAP; col++;
+  const ROW_W = PER_ROW * FW + (PER_ROW - 1) * FGAP, SGAP = 40;
+  const kidsOf = f => frames.filter(k => k.parent === f.id);
+  let x = 0, y = 0, rowMax = 0;
+  for (const f of frames.filter(fr => !fr.parent || !frames.some(p => p.id === fr.parent))) {
+    const kids = kidsOf(f);
+    const w = kids.length ? PAD * 2 + kids.length * FW + (kids.length - 1) * SGAP : FW;
+    if (x > 0 && x + w > ROW_W) { x = 0; y += rowMax + FGAP; rowMax = 0; }
+    if (kids.length) {
+      /* anything lying directly on the parent goes into its first section */
+      groups.get(kids[0]).push(...groups.get(f));
+      let kx = x + PAD, kmax = 0;
+      for (const k of kids) {
+        const h = place(groups.get(k), kx + PAD, y + TITLE + TITLE, COLS);
+        k.x = kx; k.y = y + TITLE; k.w = FW; k.h = Math.max(320, TITLE + h + PAD);
+        kmax = Math.max(kmax, k.h); kx += FW + SGAP;
+      }
+      f.x = x; f.y = y; f.w = w; f.h = TITLE + kmax + PAD;
+    } else {
+      const h = place(groups.get(f), x + PAD, y + TITLE, COLS);
+      f.x = x; f.y = y; f.w = FW; f.h = Math.max(320, TITLE + h + PAD);
+    }
+    rowMax = Math.max(rowMax, f.h); x += w + FGAP;
   }
   if (loose.length) {
     const ly = frames.length ? y + rowMax + FGAP * 1.5 : 0;
@@ -1553,6 +1643,9 @@ function tidyItems(items) {
   }
   /* keep each pinned note exactly where it sat on its screenshot */
   for (const [n, p] of pinned) { const im = p.im; n.x = Math.round(im.x + p.rx * im.w); n.y = Math.round(im.y + p.ry * im.h); n.w = Math.round(p.rw * im.w); n.h = Math.round(p.rh * im.h); }
+  /* parents under their sections */
+  const fr = items.filter(i => i.kind === 'frame'), others = items.filter(i => i.kind !== 'frame');
+  items.length = 0; items.push(...fr.filter(f => !f.parent), ...fr.filter(f => f.parent), ...others);
   /* pinned notes draw above their screenshot */
   const lift = new Set(pinned.keys());
   const rest = items.filter(i => !lift.has(i));
@@ -1613,14 +1706,16 @@ async function tryRemembered() {
 function unlock(payload) {
   $('lock').remove();
   ROUTINE = Array.isArray(payload.routine) ? payload.routine : [];
+  if (load('rutiini-pituus', null) !== ROUTINE.length) { rdone.clear(); save(RKEY, []); save('rutiini-pituus', ROUTINE.length); }
   renderRoutine();
   openBoard(load('ideataulu-viimeisin', null) || (index[0] && index[0].id) || null);
   if (payload.board && !load('oletustaulu-tuotu', false)) {
     save('oletustaulu-tuotu', true); save('siisti-v1', true); save('rutiini-osio-v1', true);
-    tidyItems(payload.board.items);
+    save('jarjestely-v1', true);
+    tidyItems(payload.board.items, organizeIdeaflip(payload.board.items));
     routineSectionItems(payload.board.items, ROUTINE);
     importJson(new File([JSON.stringify(payload.board)], 'oletustaulu.json'));
-  } else { migrateTidy(); ensureRoutineSection(); }
+  } else { migrateTidy(); ensureRoutineSection(); migrateBoards(); }
   const f = new URLSearchParams(location.search).get('tuo');
   if (f && /^[\w.-]+\.json$/.test(f)) {
     history.replaceState(null, '', location.pathname);
