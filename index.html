@@ -286,6 +286,7 @@
   <button class="tb" id="tplBtn">Pohjat ▾</button>
   <button class="tb" id="arrange" title="Järjestä valitut laput ruudukkoon">Järjestä</button>
   <button class="tb" id="noteBtn" title="Valitun lapun muoto, merkintä ja tila">Lappu ▾</button>
+  <button class="tb" id="tidyBtn" title="Suorista ja asettele kaikki laput siististi">Siisti</button>
   <span class="sep"></span>
   <button class="tb" id="undo" title="Kumoa (Ctrl+Z)">↶</button>
   <button class="tb" id="redo" title="Tee uudelleen (Ctrl+Shift+Z)">↷</button>
@@ -338,7 +339,6 @@
     <button data-status="new" title="Uusi">Uusi</button>
     <button data-status="doing" title="Työn alla">Työn alla</button>
     <button data-status="done" title="Valmis">Valmis</button>
-    <button data-status="cancel" title="Hylätty">Hylätty</button>
   </div>
   <small>Merkintä, esimerkiksi päivämäärä</small>
   <div class="mrow">
@@ -364,7 +364,7 @@
     <tr><td>Uusi lappu</td><td>Keskiklikkaa tyhjää kohtaa, tuplaklikkaa tai paina N</td></tr>
     <tr><td>Muokkaa tekstiä</td><td>Klikkaa lappua. Esc tai klikkaus muualle lopettaa.</td></tr>
     <tr><td>Päivämäärä</td><td>Lapun yläreunan laatikko on luontipäivä. Klikkaa sitä muokataksesi.</td></tr>
-    <tr><td>Tila</td><td>Klikkaa lapun kulman merkkiä: uusi, työn alla, valmis. Hylätty löytyy Lappu-valikosta.</td></tr>
+    <tr><td>Tila</td><td>Klikkaa lapun kulman merkkiä: uusi, työn alla, valmis. </td></tr>
     <tr><td>Kuva</td><td>Liitä leikepöydältä (Ctrl + V) tai pudota kuvatiedosto taululle</td></tr>
     <tr><td>Muoto, merkintä, ✓ ✗</td><td>Valitse lappu ja avaa Lappu-valikko</td></tr>
     <tr><td>Siirrä</td><td>Vedä lappua. Kehystä vedetään sen otsikosta, ja sen laput tulevat mukana.</td></tr>
@@ -376,6 +376,7 @@
     <tr><td>Koko</td><td>Vedä oikean alakulman neliöstä</td></tr>
     <tr><td>Poista</td><td>Delete tai Backspace</td></tr>
     <tr><td>Monista</td><td>Ctrl + D</td></tr>
+    <tr><td>Siisti</td><td>Suoristaa laput, tekee niistä samankokoiset ja asettelee ne riveihin kehyksiinsä. Kumoa palauttaa.</td></tr>
     <tr><td>Kumoa</td><td>Ctrl + Z, uudelleen Ctrl + Shift + Z</td></tr>
     <tr><td>Työkalut</td><td>V valitse, P kynä, T teksti, F kehys, 0 sovita</td></tr>
   </table>
@@ -1408,6 +1409,84 @@ $('routineBtn').classList.toggle('on', document.body.classList.contains('rt-open
 renderRoutine();
 
 /* ---------- start ---------- */
+/* ---------- tidy ---------- */
+function tidyItems(items) {
+  const CELL = 170, GAP = 26, PAD = 30, TITLE = 76, COLS = 4, FGAP = 90, PER_ROW = 3;
+  const FW = PAD * 2 + COLS * CELL + (COLS - 1) * GAP;
+  for (const it of items) if (it.kind === 'note' && it.status === 'cancel') it.status = 'new';
+  const frames = items.filter(i => i.kind === 'frame').sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const content = items.filter(i => i.kind === 'note' || i.kind === 'text' || i.kind === 'image');
+  const inside = (it, f) => { const b = bounds(it), cx = b.x + b.w / 2, cy = b.y + b.h / 2; return cx > f.x && cx < f.x + f.w && cy > f.y && cy < f.y + f.h; };
+  /* a note lying on a screenshot stays pinned to it */
+  const imgsAll = content.filter(i => i.kind === 'image'), pinned = new Map();
+  for (const n of content.filter(i => i.kind === 'note')) {
+    const b = bounds(n), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    const im = imgsAll.find(m => cx > m.x && cx < m.x + m.w && cy > m.y && cy < m.y + m.h);
+    if (im) pinned.set(n, { im, rx: (n.x - im.x) / im.w, ry: (n.y - im.y) / im.h, rw: n.w / im.w, rh: n.h / im.h });
+  }
+  const groups = new Map(frames.map(f => [f, []])), loose = [];
+  for (const it of content) {
+    if (pinned.has(it)) continue;
+    const f = frames.filter(fr => inside(it, fr)).sort((a, b) => a.w * a.h - b.w * b.h)[0];
+    (f ? groups.get(f) : loose).push(it);
+  }
+  const order = (a, b) => (Math.round(a.y / 120) - Math.round(b.y / 120)) || (a.x - b.x);
+  /* lay out one group starting at x0, y0 in a grid of `cols`; returns the height used */
+  const place = (list, x0, y0, cols) => {
+    const notes = list.filter(i => i.kind !== 'image').sort(order), imgs = list.filter(i => i.kind === 'image').sort(order);
+    let y = y0;
+    notes.forEach((it, i) => {
+      it.rot = 0; it.w = CELL; it.h = CELL;
+      it.x = x0 + (i % cols) * (CELL + GAP); it.y = y0 + Math.floor(i / cols) * (CELL + GAP);
+    });
+    if (notes.length) y = y0 + Math.ceil(notes.length / cols) * (CELL + GAP);
+    const span = 2, iw = span * CELL + (span - 1) * GAP, per = Math.max(1, Math.floor(cols / span));
+    let rowH = 0;
+    imgs.forEach((it, i) => {
+      const k = iw / it.w; it.w = Math.round(iw); it.h = Math.round(it.h * k); it.rot = 0;
+      if (i && i % per === 0) { y += rowH + GAP; rowH = 0; }
+      it.x = x0 + (i % per) * (iw + GAP); it.y = y; rowH = Math.max(rowH, it.h);
+    });
+    if (imgs.length) y += rowH + GAP;
+    return Math.max(0, y - y0 - (list.length ? GAP : 0));
+  };
+  let x = 0, y = 0, rowMax = 0, col = 0;
+  for (const f of frames) {
+    if (col === PER_ROW) { col = 0; x = 0; y += rowMax + FGAP; rowMax = 0; }
+    const list = groups.get(f);
+    const h = place(list, x + PAD, y + TITLE, COLS);
+    f.x = x; f.y = y; f.w = FW; f.h = Math.max(320, TITLE + h + PAD);
+    rowMax = Math.max(rowMax, f.h); x += FW + FGAP; col++;
+  }
+  if (loose.length) {
+    const ly = frames.length ? y + rowMax + FGAP * 1.5 : 0;
+    place(loose, 0, ly, Math.max(COLS, PER_ROW * COLS + PER_ROW - 1));
+  }
+  /* keep each pinned note exactly where it sat on its screenshot */
+  for (const [n, p] of pinned) { const im = p.im; n.x = Math.round(im.x + p.rx * im.w); n.y = Math.round(im.y + p.ry * im.h); n.w = Math.round(p.rw * im.w); n.h = Math.round(p.rh * im.h); }
+  /* pinned notes draw above their screenshot */
+  const lift = new Set(pinned.keys());
+  const rest = items.filter(i => !lift.has(i));
+  items.length = 0; items.push(...rest, ...lift);
+}
+function tidyBoard() {
+  if (!board.items.some(i => i.kind !== 'stroke')) { toast('Taulu on tyhjä'); return; }
+  tidyItems(board.items); sel.clear(); render(); commit(); fitView(); toast('Siistitty');
+}
+$('tidyBtn').onclick = tidyBoard;
+function migrateTidy() {
+  if (load('siisti-v1', false)) return;
+  for (const e of index) {
+    if (e.name !== 'Ideaflip') continue;
+    const b = load('ideataulu-' + e.id, null);
+    if (!b || !Array.isArray(b.items)) continue;
+    tidyItems(b.items);
+    if (board && board.id === b.id) { board.items = b.items; hist = [snap()]; hi = 0; render(); fitView(); persist(); }
+    else save('ideataulu-' + b.id, b);
+  }
+  save('siisti-v1', true);
+}
+
 /* ---------- lock: the board and routine live only in the encrypted file ---------- */
 async function decryptPayload(pw) {
   const r = await fetch('oletus.enc.json', { cache: 'no-store' });
@@ -1426,9 +1505,10 @@ function unlock(payload) {
   renderRoutine();
   openBoard(load('ideataulu-viimeisin', null) || (index[0] && index[0].id) || null);
   if (payload.board && !load('oletustaulu-tuotu', false)) {
-    save('oletustaulu-tuotu', true);
+    save('oletustaulu-tuotu', true); save('siisti-v1', true);
+    tidyItems(payload.board.items);
     importJson(new File([JSON.stringify(payload.board)], 'oletustaulu.json'));
-  }
+  } else migrateTidy();
   const f = new URLSearchParams(location.search).get('tuo');
   if (f && /^[\w.-]+\.json$/.test(f)) {
     history.replaceState(null, '', location.pathname);
