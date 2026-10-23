@@ -267,7 +267,7 @@
   <span id="swatches" style="display:flex;gap:6px;align-items:center;padding:0 4px"></span>
   <span class="sep"></span>
   <button class="tb" id="tplBtn">Pohjat ▾</button>
-  <button class="tb" id="arrange" title="Järjestä valitut laput ruudukkoon äänten mukaan">Järjestä</button>
+  <button class="tb" id="arrange" title="Järjestä valitut laput ruudukkoon">Järjestä</button>
   <button class="tb" id="noteBtn" title="Valitun lapun muoto, merkintä ja tila">Lappu ▾</button>
   <span class="sep"></span>
   <button class="tb" id="undo" title="Kumoa (Ctrl+Z)">↶</button>
@@ -353,9 +353,8 @@
     <tr><td>Valitse monta</td><td>Shift + klikkaus, tai Shift + veto tyhjästä kohdasta</td></tr>
     <tr><td>Liiku</td><td>Vedä tyhjää kohtaa tai vedä keski- tai oikealla painikkeella, tai kaksi sormea</td></tr>
     <tr><td>Zoomaa</td><td>Rulla tai nipistys. Shift + rulla liikuttaa sivuttain.</td></tr>
-    <tr><td>Yhdistä</td><td>Vedä lapun oikean reunan pallosta toiseen lappuun</td></tr>
-    <tr><td>Äänestä</td><td>Klikkaa ▲. Alt-klikkaus tai oikea klikkaus perää äänen.</td></tr>
-    <tr><td>Väri</td><td>Valitse laput ja klikkaa väriä, tai paina 1–7</td></tr>
+    <tr><td>Yhdistä</td><td>Alt + veto lapusta toiseen lappuun. Tyhjään kohtaan pudotus luo uuden yhdistetyn lapun.</td></tr>
+        <tr><td>Väri</td><td>Valitse laput ja klikkaa väriä, tai paina 1–7</td></tr>
     <tr><td>Koko</td><td>Vedä oikean alakulman neliöstä</td></tr>
     <tr><td>Poista</td><td>Delete tai Backspace</td></tr>
     <tr><td>Monista</td><td>Ctrl + D</td></tr>
@@ -403,8 +402,8 @@ function welcomeBoard() {
   const b = { id: uid(), name: 'Ensimmäinen taulu', items: [], links: [], view: { x: 80, y: 120, z: 1 } };
   const tips = [
     ['Keskiklikkaa tyhjää kohtaa, niin saat uuden lapun. Klikkaus vaihtaa tilaa, tuplaklikkaus muokkaa.', 0],
-    ['Vedä tämän lapun oikean reunan pallosta toiseen lappuun, niin syntyy nuoli.', 3],
-    ['Klikkaa ▲ äänestääksesi. Järjestä-nappi lajittelee valitut laput äänten mukaan.', 4],
+    ['Pidä Alt pohjassa ja vedä tästä lapusta toiseen lappuun, niin syntyy nuoli.', 3],
+    ['Järjestä-nappi asettaa valitut laput siistiin ruudukkoon.', 4],
     ['Pohjat-valikossa on valmiita kehyksiä, esimerkiksi retrospektiivi.', 1],
   ];
   tips.forEach(([t, c], i) => b.items.push({ id: uid(), kind: 'note', x: i * 280, y: (i % 2) * 60, w: NOTE_W, h: NOTE_H, text: t, color: COLORS[c], votes: 0, status: 'new' }));
@@ -499,14 +498,14 @@ function makeEl(it) {
   } else if (it.kind === 'image') {
     e = document.createElement('div');
     e.className = 'item imgitem';
-    e.innerHTML = '<img alt="" draggable="false"><div class="rs"></div><div class="lh" title="Vedä toiseen lappuun"></div>';
+    e.innerHTML = '<img alt="" draggable="false"><div class="rs"></div>';
     $('noteLayer').append(e);
   } else {
     e = document.createElement('div');
     e.className = 'item ' + (it.kind === 'text' ? 'textitem' : 'note');
     e.innerHTML = (it.kind === 'note' ? '<div class="bgw"><div class="bg"></div></div>' : '') + '<div class="txt"></div>' +
-      (it.kind === 'note' ? '<button class="vote" type="button"></button><span class="tag"></span><span class="status"></span>' : '') +
-      '<div class="rs"></div><div class="lh" title="Vedä toiseen lappuun"></div>';
+      (it.kind === 'note' ? '<span class="tag"></span><span class="status"></span>' : '') +
+      '<div class="rs"></div>';
     $('noteLayer').append(e);
   }
   e.dataset.id = it.id;
@@ -750,6 +749,10 @@ vp.addEventListener('pointerdown', e => {
     if (!e.shiftKey) sel.clear();
     sel.add(h.id); render(); return;
   }
+  if (h.type === 'item' && tool !== 'pen' && e.altKey) {
+    const it = find(h.id);
+    if (it && (it.kind === 'note' || it.kind === 'text' || it.kind === 'image')) { drag = { type: 'link', from: h.id, moved: false, target: null }; return; }
+  }
   if (h.type === 'item' && tool !== 'pen') {
     const was = sel.has(h.id);
     if (e.shiftKey) { was ? sel.delete(h.id) : sel.add(h.id); }
@@ -975,7 +978,7 @@ function arrange() {
   const cw = Math.max(...notes.map(n => n.w)) + gap, ch = Math.max(...notes.map(n => n.h)) + gap;
   notes.forEach((n, i) => { n.x = b.x + (i % cols) * cw; n.y = b.y + Math.floor(i / cols) * ch; });
   render(); commit();
-  toast('Järjestetty äänten mukaan');
+  toast('Järjestetty');
 }
 
 /* ---------- templates ---------- */
