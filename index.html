@@ -478,6 +478,8 @@ function openBoard(id) {
   b.links = Array.isArray(b.links) ? b.links : [];
   b.view = b.view || { x: 0, y: 0, z: 1 };
   for (const it of b.items) if (it.kind === 'note' && !it.tag && !it.created) it.created = Date.now();
+  /* routine notes no longer show the step length */
+  for (const it of b.items) if (it.kind === 'note' && it.routine && typeof it.text === 'string') it.text = it.text.replace(/\n(\d+ h( \d+ min)?|\d+ min)$/, '');
   board = b;
   if (!index.find(x => x.id === b.id)) index.push({ id: b.id, name: b.name, updated: Date.now() });
   save('ideataulu-viimeisin', b.id);
@@ -1466,7 +1468,7 @@ function routineSectionItems(items, routine) {
   let t = h * 60 + mm;
   routine.forEach((r, i) => {
     items.push({ id: uid(), kind: 'note', routine: i + 1, x: x0 + PAD + (i % COLS) * (CELL + GAP), y: y0 + TITLE + Math.floor(i / COLS) * (CELL + GAP),
-      w: CELL, h: CELL, text: r.name + (r.detail ? '\n' + r.detail : '') + '\n' + fmtDur(r.min), color: ROUTINE_COLOR[r.kind] || COLORS[0],
+      w: CELL, h: CELL, text: r.name + (r.detail ? '\n' + r.detail : ''), color: ROUTINE_COLOR[r.kind] || COLORS[0],
       votes: 0, status: 'new', tag: fmtClock(t), created: Date.now() });
     t += r.min;
   });
