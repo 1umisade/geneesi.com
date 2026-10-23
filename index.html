@@ -85,7 +85,7 @@
   }
   .note[data-shape=circle] .txt { padding: 18%; }
   .note[data-shape=diamond] .txt, .note[data-shape=hexagon] .txt { padding: 24%; }
-  .txt[contenteditable=true] { cursor: text; overflow: auto; }
+  .txt[contenteditable=true] { cursor: text; overflow: hidden; }
   .tag {
     position: absolute; top: -11px; left: 50%; transform: translateX(-50%); z-index: 2;
     background: #f3e9d2; color: #2b241c; border: 1px solid rgba(43,36,28,.25); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 3px;
@@ -578,9 +578,9 @@ function makeEl(it) {
   return e;
 }
 
-function fitText(e, it) {
+function fitText(e, it, force) {
   const t = e.querySelector('.txt');
-  if (t.isContentEditable) return;
+  if (t.isContentEditable && !force) return;
   let size = it.kind === 'text' ? (it.size || 24) : clamp(Math.round(Math.min(it.w, it.h) * 0.24), 12, 44);
   const min = 8;
   t.style.fontSize = size + 'px';
@@ -742,8 +742,11 @@ function startEdit(id, frameTitle = false, cx, cy) {
     if (cx !== undefined) r.collapse(false);
   }
   s.addRange(r);
+  /* while typing, the text keeps shrinking or growing to fit the note */
+  const refit = () => { const it = find(id); if (it && (it.kind === 'note' || it.kind === 'text') && !frameTitle) fitText(e, it, true); };
+  refit();
   const done = () => {
-    t.removeEventListener('blur', done); t.removeEventListener('keydown', key);
+    t.removeEventListener('blur', done); t.removeEventListener('keydown', key); t.removeEventListener('input', refit);
     t.contentEditable = 'false'; editing = null;
     const it = find(id);
     if (it) {
@@ -758,7 +761,7 @@ function startEdit(id, frameTitle = false, cx, cy) {
     if (ev.key === 'Escape' || (ev.key === 'Enter' && !ev.shiftKey)) { ev.preventDefault(); t.blur(); }
     ev.stopPropagation();
   };
-  t.addEventListener('blur', done); t.addEventListener('keydown', key);
+  t.addEventListener('blur', done); t.addEventListener('keydown', key); t.addEventListener('input', refit);
 }
 
 function startTagEdit(id) {
