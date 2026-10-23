@@ -345,8 +345,8 @@
   <h2>Ideataulu</h2>
   <table>
     <tr><td>Uusi lappu</td><td>Keskiklikkaa tyhjää kohtaa, tuplaklikkaa tai paina N</td></tr>
-    <tr><td>Tila</td><td>Klikkaa lappua: uusi, työn alla, valmis. Hylätty löytyy Lappu-valikosta.</td></tr>
-    <tr><td>Muokkaa tekstiä</td><td>Tuplaklikkaa lappua tai paina Enter. Esc tai klikkaus muualle lopettaa.</td></tr>
+    <tr><td>Muokkaa tekstiä</td><td>Klikkaa lappua. Esc tai klikkaus muualle lopettaa.</td></tr>
+    <tr><td>Tila</td><td>Keskiklikkaus lappuun: uusi, työn alla, valmis. Hylätty löytyy Lappu-valikosta.</td></tr>
     <tr><td>Kuva</td><td>Liitä leikepöydältä (Ctrl + V) tai pudota kuvatiedosto taululle</td></tr>
     <tr><td>Muoto, merkintä, ✓ ✗</td><td>Valitse lappu ja avaa Lappu-valikko</td></tr>
     <tr><td>Siirrä</td><td>Vedä lappua. Kehystä vedetään sen otsikosta, ja sen laput tulevat mukana.</td></tr>
@@ -401,7 +401,7 @@ let saveTimer = null;
 function welcomeBoard() {
   const b = { id: uid(), name: 'Ensimmäinen taulu', items: [], links: [], view: { x: 80, y: 120, z: 1 } };
   const tips = [
-    ['Keskiklikkaa tyhjää kohtaa, niin saat uuden lapun. Klikkaus vaihtaa tilaa, tuplaklikkaus muokkaa.', 0],
+    ['Keskiklikkaa tyhjää kohtaa, niin saat uuden lapun. Klikkaus muokkaa, keskiklikkaus vaihtaa tilaa.', 0],
     ['Pidä Alt pohjassa ja vedä tästä lapusta toiseen lappuun, niin syntyy nuoli.', 3],
     ['Järjestä-nappi asettaa valitut laput siistiin ruudukkoon.', 4],
     ['Pohjat-valikossa on valmiita kehyksiä, esimerkiksi retrospektiivi.', 1],
@@ -734,7 +734,7 @@ vp.addEventListener('pointerdown', e => {
 
   if (e.button === 1 || e.button === 2) {
     if (h.type === 'vote' && e.button === 2) { vote(h.id, -1); return; }
-    drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, mid: e.button === 1 && h.type === 'bg' };
+    drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, mid: e.button === 1 && h.type === 'bg', cycle: e.button === 1 && h.type === 'item' ? h.id : null };
     vp.classList.add('panning'); return;
   }
   if (h.type === 'vote') { vote(h.id, e.altKey ? -1 : 1); return; }
@@ -867,6 +867,11 @@ function endPointer(e) {
   vp.classList.remove('panning');
   if (d.type === 'pan') {
     if (!d.moved && d.mid) { const w = toWorld(e.clientX, e.clientY); addNote(w.x, w.y); return; }
+    if (!d.moved && d.cycle) {
+      const it = find(d.cycle);
+      if (it && it.kind === 'note') { const k = CYCLE.indexOf(it.status); it.status = CYCLE[(k + 1) % CYCLE.length]; sel.clear(); sel.add(it.id); render(); commit(); }
+      return;
+    }
     if (!d.moved && d.clear && sel.size) { sel.clear(); render(); }
     persistSoon(); return;
   }
@@ -875,8 +880,7 @@ function endPointer(e) {
     if (!d.shift) {
       sel.clear(); sel.add(d.clickId); render();
       const it = find(d.clickId);
-      if (it && it.kind === 'note') { const k = CYCLE.indexOf(it.status); it.status = CYCLE[(k + 1) % CYCLE.length]; render(); commit(); }
-      else if (it && it.kind === 'text') startEdit(it.id, false, e.clientX, e.clientY);
+      if (it && (it.kind === 'note' || it.kind === 'text')) startEdit(it.id, false, e.clientX, e.clientY);
     }
     return;
   }
