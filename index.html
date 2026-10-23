@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Päivärutiini</title>
+<meta name="description" content="Aku Kankaan päivärutiini">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f1e7;
+    --card: #fffdf8;
+    --ink: #2b241c;
+    --muted: #7a6d5d;
+    --line: #e6dccb;
+    --accent: #3f7a52;
+    --accent-soft: #e3efe5;
+    --study: #4a5f8a;
+    --study-soft: #e5eaf4;
+    --meal: #a8652b;
+    --meal-soft: #f6e9db;
+    --calm: #7a5c8f;
+    --calm-soft: #efe7f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1814;
+      --card: #24201b;
+      --ink: #efe7da;
+      --muted: #a89a87;
+      --line: #3a332b;
+      --accent: #7fbf91;
+      --accent-soft: #263a2c;
+      --study: #9fb2dc;
+      --study-soft: #262e40;
+      --meal: #e0a46e;
+      --meal-soft: #3a2c1f;
+      --calm: #c4a6d8;
+      --calm-soft: #33283b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 Inter, system-ui, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 48px 16px 64px; }
+  h1 {
+    font-family: Fraunces, Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(32px, 6vw, 44px);
+    line-height: 1.1;
+    margin: 0 0 8px;
+  }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .bar {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 18px;
+  }
+  .bar label { color: var(--muted); font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .bar input[type=time] {
+    font: inherit; color: var(--ink); background: transparent;
+    border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;
+  }
+  .stats { display: flex; gap: 18px; font-size: 14px; color: var(--muted); }
+  .stats b { color: var(--ink); font-weight: 600; }
+  button.reset {
+    font: inherit; font-size: 14px; color: var(--muted); background: transparent;
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer;
+  }
+  button.reset:hover { color: var(--ink); border-color: var(--muted); }
+  .progress { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 0 0 22px; }
+  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .3s ease; }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li {
+    display: grid; grid-template-columns: 28px 64px 1fr auto; gap: 12px; align-items: center;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; cursor: pointer; transition: opacity .2s ease;
+  }
+  li:hover { border-color: var(--muted); }
+  li.done { opacity: .5; }
+  li.done .name { text-decoration: line-through; }
+  .check {
+    width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line);
+    display: grid; place-items: center; color: transparent; font-size: 13px;
+  }
+  li.done .check { background: var(--accent); border-color: var(--accent); color: var(--card); }
+  .clock { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
+  .name { font-weight: 500; overflow-wrap: anywhere; }
+  .detail { display: block; color: var(--muted); font-size: 14px; font-weight: 400; }
+  .dur {
+    font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 500;
+    padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+    white-space: nowrap;
+  }
+  li[data-kind=study] .dur { background: var(--study-soft); color: var(--study); }
+  li[data-kind=meal] .dur { background: var(--meal-soft); color: var(--meal); }
+  li[data-kind=calm] .dur { background: var(--calm-soft); color: var(--calm); }
+  footer { color: var(--muted); font-size: 13px; margin-top: 28px; text-align: center; }
+  @media (max-width: 480px) {
+    li { grid-template-columns: 24px 1fr auto; }
+    .clock { grid-column: 2; grid-row: 2; font-size: 13px; }
+    .name { grid-column: 2; grid-row: 1; }
+    .dur { grid-column: 3; grid-row: 1 / span 2; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Päivärutiini</h1>
+  <p class="sub">Merkitse tehdyt napauttamalla. Valinnat nollautuvat joka päivä.</p>
+
+  <div class="bar">
+    <label>Aloitus <input type="time" id="start" value="07:00"></label>
+    <div class="stats">
+      <span>Yhteensä <b id="total"></b></span>
+      <span>Valmiina <b id="doneCount"></b></span>
+    </div>
+    <button class="reset" id="reset" type="button">Tyhjennä</button>
+  </div>
+  <div class="progress"><div id="prog"></div></div>
+
+  <ol id="list"></ol>
+
+  <footer>geneesi.com</footer>
+</main>
+
+<script>
+const ROUTINE = [
+  { name: 'treeni', min: 30, kind: 'move' },
+  { name: 'suihku, parta', min: 5, kind: 'move' },
+  { name: 'siistit vaatteet', min: 3, kind: 'move' },
+  { name: 'meditaatio', min: 15, kind: 'calm' },
+  { name: 'vaha, tuoksu, kasvovoide', min: 1, kind: 'move' },
+  { name: 'duta, vita, meto', min: 1, kind: 'move' },
+  { name: 'aamiainen', detail: '100 g rahka, 10 g hera, banaani', min: 30, kind: 'meal' },
+  { name: 'ksylitoli', min: 1, kind: 'move' },
+  { name: 'opiskelu', min: 120, kind: 'study' },
+  { name: 'opiskelu', min: 120, kind: 'study' },
+  { name: 'lounas', detail: '100 g kala, 10 ml rypsiöljy', min: 30, kind: 'meal' },
+  { name: 'ksylitoli', min: 1, kind: 'move' },
+  { name: 'juoksevat asiat', min: 60, kind: 'move' },
+  { name: 'meditaatio', min: 15, kind: 'calm' },
+  { name: 'opiskelu', min: 120, kind: 'study' },
+  { name: 'opiskelu', min: 120, kind: 'study' },
+  { name: 'päivällinen', detail: '75 g kanaa, 5 ml öljy, 100 g makaronia, 200 g kasviksia', min: 30, kind: 'meal' },
+  { name: 'löhö', min: 60, kind: 'calm' },
+  { name: 'Anki-kävely', min: 60, kind: 'move' },
+];
+
+const $ = id => document.getElementById(id);
+const today = new Date().toISOString().slice(0, 10);
+const KEY = 'rutiini-' + today;
+
+function load(key, fallback) {
+  try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); }
+  catch { return fallback; }
+}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { }
+}
+
+let done = new Set(load(KEY, []));
+$('start').value = load('rutiini-aloitus', '07:00');
+
+const fmtDur = m => m >= 60 ? (Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '')) : m + ' min';
+const fmtClock = m => {
+  m = ((m % 1440) + 1440) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+};
+
+function render() {
+  const [h, mm] = ($('start').value || '07:00').split(':').map(Number);
+  let t = h * 60 + mm;
+  const list = $('list');
+  list.innerHTML = '';
+  ROUTINE.forEach((r, i) => {
+    const li = document.createElement('li');
+    li.dataset.kind = r.kind;
+    if (done.has(i)) li.classList.add('done');
+    li.innerHTML =
+      '<span class="check" aria-hidden="true">✓</span>' +
+      '<span class="clock">' + fmtClock(t) + '</span>' +
+      '<span class="name"></span>' +
+      '<span class="dur">' + fmtDur(r.min) + '</span>';
+    const name = li.querySelector('.name');
+    name.textContent = r.name;
+    if (r.detail) { const d = document.createElement('span'); d.className = 'detail'; d.textContent = r.detail; name.append(d); }
+    li.setAttribute('role', 'checkbox');
+    li.setAttribute('aria-checked', done.has(i));
+    li.tabIndex = 0;
+    const toggle = () => { done.has(i) ? done.delete(i) : done.add(i); save(KEY, [...done]); render(); };
+    li.addEventListener('click', toggle);
+    li.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } });
+    list.append(li);
+    t += r.min;
+  });
+  const total = ROUTINE.reduce((s, r) => s + r.min, 0);
+  const doneMin = ROUTINE.reduce((s, r, i) => s + (done.has(i) ? r.min : 0), 0);
+  $('total').textContent = fmtDur(total) + ' · loppuu ' + fmtClock(h * 60 + mm + total);
+  $('doneCount').textContent = done.size + ' / ' + ROUTINE.length;
+  $('prog').style.width = (100 * doneMin / total).toFixed(1) + '%';
+}
+
+$('start').addEventListener('change', () => { save('rutiini-aloitus', $('start').value); render(); });
+$('reset').addEventListener('click', () => { done.clear(); save(KEY, []); render(); });
+render();
+</script>
+</body>
+</html>
