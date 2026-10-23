@@ -245,6 +245,10 @@
     #routine { box-shadow: -8px 0 24px rgba(0,0,0,.2); }
   }
   @media (max-width: 600px) { #zoom { right: 12px; bottom: 12px; } #top { left: 8px; right: 8px; } }
+  /* toolbar and routine panel removed (owner 23.10.2026); the routine lives on the board */
+  #top, #routine { display: none !important; }
+  body.rt-open #viewport { right: 0; }
+  body.rt-open #zoom { right: 16px; }
   #lock { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; }
   #lockForm { width: 100%; max-width: 320px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 24px; display: grid; gap: 12px; }
   #lockForm h1 { margin: 0 0 4px; font-size: 24px; font-weight: 600; }
@@ -1038,7 +1042,7 @@ function vote(id, d) {
 function fitView() {
   const b = allBounds(board.items);
   if (!b) { board.view = { x: vp.clientWidth / 2, y: vp.clientHeight / 2, z: 1 }; applyView(); return; }
-  const pad = 80, top = 70;
+  const pad = 80, top = 0;
   const z = clamp(Math.min((vp.clientWidth - pad * 2) / Math.max(b.w, 1), (vp.clientHeight - pad * 2 - top) / Math.max(b.h, 1)), 0.1, 1.5);
   board.view = { z, x: vp.clientWidth / 2 - (b.x + b.w / 2) * z, y: (vp.clientHeight + top) / 2 - (b.y + b.h / 2) * z };
   applyView(); persistSoon();
@@ -1450,7 +1454,7 @@ function setRoutine(open) {
 }
 $('routineBtn').onclick = () => setRoutine(!document.body.classList.contains('rt-open'));
 $('routineClose').onclick = () => setRoutine(false);
-document.body.classList.toggle('rt-open', load('rutiini-auki', innerWidth > 800));
+document.body.classList.toggle('rt-open', false);
 $('routineBtn').classList.toggle('on', document.body.classList.contains('rt-open'));
 renderRoutine();
 
