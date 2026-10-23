@@ -1414,6 +1414,15 @@ renderRoutine();
 
 /* ---------- start ---------- */
 openBoard(load('ideataulu-viimeisin', null) || (index[0] && index[0].id) || null);
+/* ?tuo=file.json imports a board file served next to the page (used for local, private boards) */
+(() => {
+  const f = new URLSearchParams(location.search).get('tuo');
+  if (!f || !/^[\w.-]+\.json$/.test(f)) return;
+  history.replaceState(null, '', location.pathname);
+  fetch(f).then(r => { if (!r.ok) throw 0; return r.blob(); })
+    .then(b => importJson(new File([b], f)))
+    .catch(() => toast('Tiedostoa ' + f + ' ei löytynyt'));
+})();
 </script>
 </body>
 </html>
