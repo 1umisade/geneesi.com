@@ -62,6 +62,12 @@
     font-weight: 600; font-size: 34px; color: var(--note-ink); cursor: move; pointer-events: auto;
     outline: none; white-space: pre-wrap; overflow-wrap: anywhere;
   }
+  .freset {
+    position: absolute; top: 12px; right: 14px; pointer-events: auto; cursor: pointer;
+    font-family: "Courier New", monospace; font-weight: bold; letter-spacing: .5px; font-size: 15px;
+    background: #f3e9d2; color: #2b241c; border: 3px solid #6b4a2b; border-radius: 999px; padding: 6px 14px;
+  }
+  .freset:hover { background: #fff6e0; }
   .ftitle[contenteditable=true] { cursor: text; background: rgba(255,255,255,.5); border-radius: 12px 12px 0 0; }
 
   .item { position: absolute; cursor: move; }
@@ -385,6 +391,7 @@
     <tr><td>Poista</td><td>Roskakori lapun oikeassa yläkulmassa, tai Delete / Backspace</td></tr>
     <tr><td>Monista</td><td>Ctrl + D</td></tr>
     <tr><td>Siisti</td><td>Suoristaa laput, tekee niistä samankokoiset ja asettelee ne riveihin kehyksiinsä. Kumoa palauttaa.</td></tr>
+    <tr><td>Rutiini</td><td>Päivärutiini-kehyksessä jokainen vaihe on lappu. Merkitse tehdyksi kulman merkistä, ja ↺ Nollaa palauttaa kaikki uusiksi.</td></tr>
     <tr><td>Kumoa</td><td>Ctrl + Z, uudelleen Ctrl + Shift + Z</td></tr>
     <tr><td>Työkalut</td><td>V valitse, P kynä, T teksti, F kehys, 0 sovita</td></tr>
   </table>
@@ -542,7 +549,7 @@ function makeEl(it) {
   let e;
   if (it.kind === 'frame') {
     e = document.createElement('div'); e.className = 'frame';
-    e.innerHTML = '<div class="ftitle"></div><div class="rs"></div>';
+    e.innerHTML = '<div class="ftitle"></div><div class="rs"></div>' + (it.routine ? '<button class="freset" type="button" title="Merkitse kaikki rutiinin laput uusiksi">↺ Nollaa</button>' : '');
     $('frameLayer').append(e);
   } else if (it.kind === 'stroke') {
     e = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -771,6 +778,7 @@ const pointers = new Map();
 let drag = null, pinch = null;
 
 function hitInfo(target) {
+  if (target.closest('.freset')) return { type: 'freset', id: target.closest('.frame').dataset.id };
   if (target.closest('.del')) return { type: 'del', id: target.closest('.item').dataset.id };
   if (target.closest('.status')) return { type: 'cycle', id: target.closest('.item').dataset.id };
   if (target.closest('.tag')) return { type: 'tag', id: target.closest('.item').dataset.id };
@@ -812,6 +820,7 @@ vp.addEventListener('pointerdown', e => {
     drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, mid: e.button === 1 && h.type === 'bg', cycle: null };
     vp.classList.add('panning'); return;
   }
+  if (h.type === 'freset' && e.button === 0) { resetRoutine(h.id); return; }
   if (h.type === 'del' && e.button === 0) { removeIds([h.id]); render(); commit(); toast('Poistettu. Kumoa: Ctrl + Z'); return; }
   if (h.type === 'tag' && e.button === 0) { startTagEdit(h.id); return; }
   if (h.type === 'cycle') {
@@ -1444,6 +1453,49 @@ $('routineBtn').classList.toggle('on', document.body.classList.contains('rt-open
 renderRoutine();
 
 /* ---------- start ---------- */
+/* ---------- routine section on the board ---------- */
+const ROUTINE_COLOR = { move: '#bdeab0', study: '#b5d8f7', meal: '#ffc48a', calm: '#d6c4f2' };
+function routineSectionItems(items, routine) {
+  if (!routine.length || items.some(i => i.kind === 'frame' && i.routine)) return;
+  const CELL = 170, GAP = 26, PAD = 30, TITLE = 76, COLS = 4;
+  const W = PAD * 2 + COLS * CELL + (COLS - 1) * GAP, rows = Math.ceil(routine.length / COLS);
+  const b = allBounds(items.filter(i => i.kind !== 'stroke'));
+  const x0 = b ? Math.round(b.x + b.w + 200) : 0, y0 = b ? Math.round(b.y) : 0;
+  items.unshift({ id: uid(), kind: 'frame', routine: true, x: x0, y: y0, w: W, h: TITLE + rows * (CELL + GAP) - GAP + PAD, title: 'Päivärutiini', color: '#ffffff' });
+  const [h, mm] = (load('rutiini-aloitus', '07:00') || '07:00').split(':').map(Number);
+  let t = h * 60 + mm;
+  routine.forEach((r, i) => {
+    items.push({ id: uid(), kind: 'note', routine: i + 1, x: x0 + PAD + (i % COLS) * (CELL + GAP), y: y0 + TITLE + Math.floor(i / COLS) * (CELL + GAP),
+      w: CELL, h: CELL, text: r.name + (r.detail ? '\n' + r.detail : '') + '\n' + fmtDur(r.min), color: ROUTINE_COLOR[r.kind] || COLORS[0],
+      votes: 0, status: 'new', tag: fmtClock(t), created: Date.now() });
+    t += r.min;
+  });
+}
+function resetRoutine(frameId) {
+  const f = find(frameId); if (!f) return;
+  const fb = bounds(f);
+  let n = 0;
+  for (const it of board.items) {
+    if (it.kind !== 'note') continue;
+    const c = center(bounds(it));
+    if (it.routine || (c.x > fb.x && c.x < fb.x + fb.w && c.y > fb.y && c.y < fb.y + fb.h)) { if (it.status !== 'new') n++; it.status = 'new'; }
+  }
+  render(); commit(); toast(n ? 'Rutiini nollattu' : 'Rutiini on jo alussa');
+}
+function ensureRoutineSection() {
+  if (load('rutiini-osio-v1', false) || !ROUTINE.length) return;
+  let done = false;
+  for (const e of index) {
+    if (e.name !== 'Ideaflip') continue;
+    const b = board && board.id === e.id ? board : load('ideataulu-' + e.id, null);
+    if (!b || !Array.isArray(b.items)) continue;
+    routineSectionItems(b.items, ROUTINE);
+    if (b === board) { render(); commit(); } else save('ideataulu-' + b.id, b);
+    done = true;
+  }
+  if (done) save('rutiini-osio-v1', true);
+}
+
 /* ---------- tidy ---------- */
 function tidyItems(items) {
   const CELL = 170, GAP = 26, PAD = 30, TITLE = 76, COLS = 4, FGAP = 90, PER_ROW = 3;
@@ -1562,10 +1614,11 @@ function unlock(payload) {
   renderRoutine();
   openBoard(load('ideataulu-viimeisin', null) || (index[0] && index[0].id) || null);
   if (payload.board && !load('oletustaulu-tuotu', false)) {
-    save('oletustaulu-tuotu', true); save('siisti-v1', true);
+    save('oletustaulu-tuotu', true); save('siisti-v1', true); save('rutiini-osio-v1', true);
     tidyItems(payload.board.items);
+    routineSectionItems(payload.board.items, ROUTINE);
     importJson(new File([JSON.stringify(payload.board)], 'oletustaulu.json'));
-  } else migrateTidy();
+  } else { migrateTidy(); ensureRoutineSection(); }
   const f = new URLSearchParams(location.search).get('tuo');
   if (f && /^[\w.-]+\.json$/.test(f)) {
     history.replaceState(null, '', location.pathname);
