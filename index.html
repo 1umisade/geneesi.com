@@ -91,6 +91,14 @@
     filter: drop-shadow(0 2px 2px rgba(0,0,0,.3)); transition: transform .12s ease;
   }
   .status svg { width: 100%; height: 100%; display: block; }
+  .del {
+    position: absolute; top: -11px; right: -11px; z-index: 3; width: 28px; height: 28px; border-radius: 50%;
+    border: 1px solid rgba(0,0,0,.15); background: #fffdf8; color: #5c5145; display: grid; place-items: center;
+    padding: 0; cursor: pointer; opacity: 0; box-shadow: 0 2px 4px rgba(0,0,0,.2); transition: opacity .12s;
+  }
+  .del:hover { background: #d9473a; color: #fff; border-color: #d9473a; }
+  .item:hover .del, .item.sel .del { opacity: 1; }
+  @media (hover: none) { .item.sel .del { opacity: 1; } }
   .status:hover { transform: scale(1.12); }
   .imgitem img { width: 100%; height: 100%; display: block; object-fit: cover; border-radius: 3px; box-shadow: 0 4px 12px rgba(0,0,0,.25); pointer-events: none; user-select: none; }
   .textitem .txt { padding: 4px 6px; font-weight: 600; color: var(--ink); display: block; text-align: left; }
@@ -374,7 +382,7 @@
     <tr><td>Yhdistä</td><td>Alt + veto lapusta toiseen lappuun. Tyhjään kohtaan pudotus luo uuden yhdistetyn lapun.</td></tr>
         <tr><td>Väri</td><td>Valitse laput ja klikkaa väriä, tai paina 1–7</td></tr>
     <tr><td>Koko</td><td>Vedä oikean alakulman neliöstä</td></tr>
-    <tr><td>Poista</td><td>Delete tai Backspace</td></tr>
+    <tr><td>Poista</td><td>Roskakori lapun oikeassa yläkulmassa, tai Delete / Backspace</td></tr>
     <tr><td>Monista</td><td>Ctrl + D</td></tr>
     <tr><td>Siisti</td><td>Suoristaa laput, tekee niistä samankokoiset ja asettelee ne riveihin kehyksiinsä. Kumoa palauttaa.</td></tr>
     <tr><td>Kumoa</td><td>Ctrl + Z, uudelleen Ctrl + Shift + Z</td></tr>
@@ -389,6 +397,7 @@
 'use strict';
 const COLORS = ['#ffe98a', '#ffc48a', '#ffb3c7', '#bdeab0', '#b5d8f7', '#d6c4f2', '#ffffff'];
 const NOTE_W = 180, NOTE_H = 150;
+const TRASH = '<button class="del" type="button" title="Poista" aria-label="Poista"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4h6v3"/></svg></button>';
 const fmtDate = ts => { const d = new Date(ts); return String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear(); };
 const tagText = it => it.tag || (it.created ? fmtDate(it.created) : '');
 /* note states: left click cycles new -> doing -> done; cancel is set from the Lappu menu */
@@ -520,14 +529,14 @@ function makeEl(it) {
   } else if (it.kind === 'image') {
     e = document.createElement('div');
     e.className = 'item imgitem';
-    e.innerHTML = '<img alt="" draggable="false"><div class="rs"></div>';
+    e.innerHTML = '<img alt="" draggable="false"><div class="rs"></div>' + TRASH;
     $('noteLayer').append(e);
   } else {
     e = document.createElement('div');
     e.className = 'item ' + (it.kind === 'text' ? 'textitem' : 'note');
     e.innerHTML = (it.kind === 'note' ? '<div class="bgw"><div class="bg"></div></div>' : '') + '<div class="txt"></div>' +
       (it.kind === 'note' ? '<span class="tag"></span><span class="status"></span>' : '') +
-      '<div class="rs"></div>';
+      '<div class="rs"></div>' + TRASH;
     $('noteLayer').append(e);
   }
   e.dataset.id = it.id;
@@ -740,6 +749,7 @@ const pointers = new Map();
 let drag = null, pinch = null;
 
 function hitInfo(target) {
+  if (target.closest('.del')) return { type: 'del', id: target.closest('.item').dataset.id };
   if (target.closest('.status')) return { type: 'cycle', id: target.closest('.item').dataset.id };
   if (target.closest('.tag')) return { type: 'tag', id: target.closest('.item').dataset.id };
   if (target.closest('.vote')) return { type: 'vote', id: target.closest('.item').dataset.id };
@@ -780,6 +790,7 @@ vp.addEventListener('pointerdown', e => {
     drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, mid: e.button === 1 && h.type === 'bg', cycle: null };
     vp.classList.add('panning'); return;
   }
+  if (h.type === 'del' && e.button === 0) { removeIds([h.id]); render(); commit(); toast('Poistettu. Kumoa: Ctrl + Z'); return; }
   if (h.type === 'tag' && e.button === 0) { startTagEdit(h.id); return; }
   if (h.type === 'cycle') {
     const it = find(h.id);
