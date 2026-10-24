@@ -552,7 +552,8 @@ function viewCenter() { return toWorld(vp.clientWidth / 2, vp.clientHeight / 2);
 
 /* ---------- rendering ---------- */
 const els = new Map();
-function clearDom() { els.forEach(e => e.remove()); els.clear(); }
+let lastOrder = '';
+function clearDom() { els.forEach(e => e.remove()); els.clear(); lastOrder = ''; }
 
 function makeEl(it) {
   let e;
@@ -584,6 +585,9 @@ function makeEl(it) {
 function fitText(e, it, force) {
   const t = e.querySelector('.txt');
   if (t.isContentEditable && !force) return;
+  const key = it.text + '|' + it.w + '|' + it.h + '|' + (it.shape || '') + '|' + (it.size || '');
+  if (!force && t.dataset.fit === key) return;
+  t.dataset.fit = force ? '' : key;
   let size = it.kind === 'text' ? (it.size || 24) : clamp(Math.round(Math.min(it.w, it.h) * 0.24), 12, 44);
   const min = 8;
   t.style.fontSize = size + 'px';
@@ -676,7 +680,8 @@ function render() {
   }
   for (const [id, e] of els) if (!seen.has(id)) { e.remove(); els.delete(id); }
   /* keep DOM order = array order so later items draw on top */
-  for (const it of board.items) { const e = els.get(it.id); e.parentNode.append(e); }
+  const order = board.items.map(i => i.id).join(',');
+  if (order !== lastOrder) { for (const it of board.items) { const e = els.get(it.id); e.parentNode.append(e); } lastOrder = order; }
   renderLinks();
   applyView();
   updateButtons();
@@ -789,22 +794,25 @@ function startTagEdit(id) {
 const G = { CELL: 170, GAP: 26, PAD: 30, TITLE: 76, COLS: 4 };
 const STEP = G.CELL + G.GAP;
 function gridFrames() { const fr = board.items.filter(i => i.kind === 'frame'); return fr.filter(f => !fr.some(k => k.parent === f.id)); }
-function frameAt(x, y) {
-  return gridFrames().filter(f => x > f.x && x < f.x + f.w && y > f.y && y < f.y + f.h).sort((a, b) => a.w * a.h - b.w * b.h)[0] || null;
+function frameAt(x, y, frames) {
+  let best = null;
+  for (const f of frames || gridFrames()) if (x > f.x && x < f.x + f.w && y > f.y && y < f.y + f.h && (!best || f.w * f.h < best.w * best.h)) best = f;
+  return best;
 }
 const ctr = it => center(bounds(it));
 const inRect = (pt, r) => pt.x > r.x && pt.x < r.x + r.w && pt.y > r.y && pt.y < r.y + r.h;
-function frameOf(it) { const c = ctr(it); return frameAt(c.x, c.y); }
+function frameOf(it, frames) { const c = ctr(it); return frameAt(c.x, c.y, frames); }
 /* what a frame holds right now: grid notes in reading order, images, and notes pinned on those images */
 function frameMembers(f, exclude) {
+  const frames = gridFrames();
   const imgsAll = board.items.filter(i => i.kind === 'image');
-  const images = imgsAll.filter(i => !(exclude && exclude.has(i.id)) && frameOf(i) === f);
+  const images = imgsAll.filter(i => !(exclude && exclude.has(i.id)) && frameOf(i, frames) === f);
   const notes = [], pins = [];
   for (const it of board.items) {
     if ((it.kind !== 'note' && it.kind !== 'text') || (exclude && exclude.has(it.id))) continue;
     const c = ctr(it), im = imgsAll.find(m => inRect(c, m));
     if (im) { if (images.includes(im)) pins.push({ n: it, im, rx: (it.x - im.x) / im.w, ry: (it.y - im.y) / im.h, rw: it.w / im.w, rh: it.h / im.h }); continue; }
-    if (frameOf(it) === f) notes.push(it);
+    if (frameOf(it, frames) === f) notes.push(it);
   }
   const ord = (a, b) => (Math.round((a.y - f.y - G.TITLE) / STEP) - Math.round((b.y - f.y - G.TITLE) / STEP)) || (a.x - b.x);
   notes.sort(ord); images.sort(ord);
@@ -851,6 +859,31 @@ function flowAround(ids, items, srcFrames, pt, insert) {
   const fill = insert ? items : items.map(() => null);
   layoutFrame(target, [...m.notes.slice(0, slot), ...fill, ...m.notes.slice(slot)], m.images, m.pins);
   return target;
+}
+
+function applyMove(d) {
+  if (!d || d.type !== 'move' || !d.pending) return;
+  d.raf = 0;
+  const w = d.pending; d.pending = null;
+  const dx = w.x - d.sx, dy = w.y - d.sy;
+  const first = !d.moved;
+  d.moved = true;
+  if (!d.objs) d.objs = [...d.orig.keys()].map(find).filter(Boolean);
+  for (const it of d.objs) {
+    const o = d.orig.get(it.id);
+    if (it.kind === 'stroke') it.points = o.map(p => [p[0] + dx, p[1] + dy]);
+    else { it.x = Math.round(o.x + dx); it.y = Math.round(o.y + dy); }
+  }
+  let full = first;
+  if (d.flow) {
+    if (first) for (const id of d.ids) { const el = els.get(id); if (el) el.classList.add('dragging'); }
+    const t = frameAt(w.x, w.y), key = t ? t.id + ':' + clamp(slotAt(t, w.x, w.y), 0, 999) : '-';
+    if (key !== d.flowKey) { d.flowKey = key; flowAround(d.ids, d.items, d.src, w, false); full = true; }
+  } else if (d.objs.some(i => i.kind === 'frame')) full = true;
+  if (full) { render(); return; }
+  /* cheap path: only the dragged elements move */
+  for (const it of d.objs) { const e = els.get(it.id); if (e) updateEl(e, it); }
+  if (board.links.length) renderLinks();
 }
 
 /* ---------- pointer interaction ---------- */
@@ -989,17 +1022,9 @@ vp.addEventListener('pointermove', e => {
   if (drag.type === 'move') {
     const dx = w.x - drag.sx, dy = w.y - drag.sy;
     if (!drag.moved && Math.hypot(dx, dy) * board.view.z < 3) return;
-    drag.moved = true;
-    for (const [id, o] of drag.orig) {
-      const it = find(id); if (!it) continue;
-      if (it.kind === 'stroke') it.points = o.map(p => [p[0] + dx, p[1] + dy]);
-      else { it.x = Math.round(o.x + dx); it.y = Math.round(o.y + dy); }
-    }
-    if (drag.flow) {
-      for (const id of drag.ids) { const el = els.get(id); if (el) el.classList.add('dragging'); }
-      flowAround(drag.ids, drag.items, drag.src, w, false);
-    }
-    render(); return;
+    drag.pending = w;
+    if (!drag.raf) drag.raf = requestAnimationFrame(() => applyMove(drag));
+    return;
   }
   if (drag.type === 'resize') {
     const it = find(drag.id); drag.moved = true;
@@ -1070,6 +1095,8 @@ function endPointer(e) {
     persistSoon(); return;
   }
   if (d.type === 'move') {
+    if (d.raf) { cancelAnimationFrame(d.raf); d.raf = 0; }
+    if (d.pending) applyMove(d);
     if (d.moved) {
       if (d.flow) {
         const pt = toWorld(e.clientX, e.clientY);
