@@ -70,6 +70,8 @@
   .freset:hover { background: #fff6e0; }
   .ftitle[contenteditable=true] { cursor: text; background: rgba(255,255,255,.5); border-radius: 12px 12px 0 0; }
 
+  #viewport, #viewport * { -webkit-user-select: none; user-select: none; }
+  #viewport [contenteditable=true], #viewport .tag input { -webkit-user-select: text; user-select: text; }
   .item { position: absolute; cursor: move; transition: left .18s ease, top .18s ease; }
   .item.dragging { transition: none; z-index: 5; }
   .note { color: var(--note-ink); }
@@ -92,7 +94,8 @@
     background: #f3e9d2; color: #2b241c; border: 1px solid rgba(43,36,28,.25); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 3px;
     white-space: nowrap; cursor: text; outline: none; font-variant-numeric: tabular-nums; min-width: 24px; text-align: center;
   }
-  .tag[contenteditable=true] { box-shadow: 0 0 0 2px var(--sel); }
+  .tag[contenteditable=true], .tag.editing { box-shadow: 0 0 0 2px var(--sel); }
+  .tag input { font: inherit; font-size: 12px; color: #2b241c; background: transparent; border: 0; outline: none; padding: 0; }
   .status {
     position: absolute; right: -12px; bottom: -12px; width: 42px; height: 42px; cursor: pointer; z-index: 2;
     filter: drop-shadow(0 2px 2px rgba(0,0,0,.3)); transition: transform .12s ease;
@@ -382,7 +385,7 @@
   <table>
     <tr><td>Uusi lappu</td><td>Keskiklikkaa tyhjää kohtaa, tuplaklikkaa tai paina N</td></tr>
     <tr><td>Muokkaa tekstiä</td><td>Klikkaa lappua. Enter tallentaa, Shift + Enter tekee uuden rivin.</td></tr>
-    <tr><td>Määräpäivä</td><td>Lapun yläreunan laatikko. Uudella lapulla kuukauden päästä. Lappu on vihreä kun aikaa on kuukausi tai enemmän, sitten keltainen, oranssi ja määräpäivänä punainen. Klikkaa laatikkoa muokataksesi.</td></tr>
+    <tr><td>Määräaika</td><td>Lapun yläreunan laatikko näyttää juoksevan ajan määräaikaan. Klikkaa sitä antaaksesi päivän ja kellonajan. Uudella lapulla kuukauden päästä. Lappu on vihreä kun aikaa on kuukausi tai enemmän, sitten keltainen, oranssi ja määräpäivänä punainen. Klikkaa laatikkoa muokataksesi.</td></tr>
     <tr><td>Tila</td><td>Klikkaa lapun kulman merkkiä: uusi, työn alla, valmis. </td></tr>
     <tr><td>Kuva</td><td>Liitä leikepöydältä (Ctrl + V) tai pudota kuvatiedosto taululle</td></tr>
     <tr><td>Muoto, merkintä, ✓ ✗</td><td>Valitse lappu ja avaa Lappu-valikko</td></tr>
@@ -413,9 +416,24 @@ const TRASH = '<button class="del" type="button" title="Poista" aria-label="Pois
 const fmtDate = ts => { const d = new Date(ts); return String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear(); };
 const DAY = 86400000, MONTH_DAYS = 30;
 const defaultDue = it => it.created ? it.created + MONTH_DAYS * DAY : null;
-const tagText = it => it.tag || (it.created ? fmtDate(defaultDue(it)) : '');
+const isDateTag = t => /^(\d{1,2})\.(\d{1,2})\.(\d{4})?$/.test(t);
+const pad2 = n => String(n).padStart(2, '0');
+/* ticking time left to the deadline: '29 pv 04:12:05', under a day '04:12:05', overdue with a minus */
+function countdown(due) {
+  let ms = due - Date.now();
+  const neg = ms < 0; ms = Math.abs(ms);
+  const d = Math.floor(ms / DAY), h = Math.floor(ms / 3600000) % 24, m = Math.floor(ms / 60000) % 60, sec = Math.floor(ms / 1000) % 60;
+  return (neg ? '−' : '') + (d ? d + ' pv ' : '') + pad2(h) + ':' + pad2(m) + ':' + pad2(sec);
+}
+function tagText(it) {
+  const t = (it.tag || '').trim();
+  if (t && !isDateTag(t)) return t;
+  const due = noteDue(it);
+  return due === null ? t : countdown(due);
+}
 /* the date box is a deadline: '17.07.2026' or '31.8.' (current year); anything else has no deadline */
 function noteDue(it) {
+  if (it.due) return it.due;
   const t = (it.tag || '').trim();
   if (!t) return defaultDue(it);
   const m = t.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})?$/);
@@ -429,7 +447,7 @@ function noteColor(it) {
   const due = noteDue(it);
   if (due === null) return it.color;
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const t = clamp(Math.round((due - today.getTime()) / DAY) / MONTH_DAYS, 0, 1);
+  const t = clamp((due - Date.now()) / DAY / MONTH_DAYS, 0, 1);
   let i = 0; while (i < BATTERY.length - 2 && t > BATTERY[i + 1][0]) i++;
   const [t0, c0] = BATTERY[i], [t1, c1] = BATTERY[i + 1], k = (t - t0) / (t1 - t0);
   return 'rgb(' + c0.map((v, j) => Math.round(v + (c1[j] - v) * k)).join(', ') + ')';
@@ -626,8 +644,8 @@ function updateEl(e, it) {
     e.dataset.shape = it.shape || 'square';
     e.querySelector('.bg').style.background = noteColor(it);
     const tg = e.querySelector('.tag');
-    if (!tg.isContentEditable) tg.textContent = tagText(it);
-    tg.style.display = tagText(it) || tg.isContentEditable ? '' : 'none';
+    if (!tg.isContentEditable && !tg.classList.contains('editing')) tg.textContent = tagText(it);
+    tg.style.display = tagText(it) || tg.isContentEditable || tg.classList.contains('editing') ? '' : 'none';
     const st = e.querySelector('.status');
     if (st.dataset.s !== (it.status || '')) { st.dataset.s = it.status || ''; st.innerHTML = BADGES[it.status] || ''; }
     st.style.display = BADGES[it.status] ? '' : 'none';
@@ -772,22 +790,38 @@ function startEdit(id, frameTitle = false, cx, cy) {
   t.addEventListener('blur', done); t.addEventListener('keydown', key); t.addEventListener('input', refit);
 }
 
+const toLocalInput = ts => { const d = new Date(ts); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
 function startTagEdit(id) {
   const e = els.get(id); if (!e) return;
   const t = e.querySelector('.tag'); if (!t) return;
+  const it = find(id); if (!it) return;
   editing = id;
-  t.style.display = ''; t.contentEditable = 'true'; t.focus();
-  const r = document.createRange(); r.selectNodeContents(t);
-  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
-  const done = () => {
-    t.removeEventListener('blur', done); t.removeEventListener('keydown', key);
-    t.contentEditable = 'false'; editing = null;
-    const it = find(id);
-    if (it) { const v = t.innerText.replace(/\s+/g, ' ').trim(); it.tag = v && v !== (it.created ? fmtDate(defaultDue(it)) : '') ? v : null; }
-    render(); commit();
+  t.classList.add('editing'); t.style.display = '';
+  const inp = document.createElement('input');
+  inp.type = 'datetime-local';
+  const due = noteDue(it);
+  inp.value = toLocalInput(due !== null ? due : Date.now() + MONTH_DAYS * DAY);
+  t.textContent = ''; t.append(inp);
+  inp.focus();
+  let closed = false;
+  const close = save => {
+    if (closed) return; closed = true;
+    t.classList.remove('editing'); editing = null;
+    if (save) {
+      const v = inp.value ? new Date(inp.value).getTime() : NaN;
+      if (!isNaN(v)) { it.due = v; if (it.tag && isDateTag(it.tag.trim())) it.tag = null; }
+      else { it.due = null; if (it.tag && isDateTag(it.tag.trim())) it.tag = null; }
+    }
+    t.textContent = tagText(it);
+    render(); if (save) commit();
   };
-  const key = ev => { if (ev.key === 'Enter' || ev.key === 'Escape') { ev.preventDefault(); t.blur(); } ev.stopPropagation(); };
-  t.addEventListener('blur', done); t.addEventListener('keydown', key);
+  inp.addEventListener('keydown', ev => {
+    ev.stopPropagation();
+    if (ev.key === 'Enter') { ev.preventDefault(); close(true); }
+    if (ev.key === 'Escape') { ev.preventDefault(); close(false); }
+  });
+  inp.addEventListener('blur', () => close(true));
+  inp.addEventListener('pointerdown', ev => ev.stopPropagation());
 }
 
 /* ---------- flowing frame grids ---------- */
@@ -913,7 +947,10 @@ function framedContents(frame) {
 vp.addEventListener('contextmenu', e => e.preventDefault());
 
 vp.addEventListener('pointerdown', e => {
-  if (e.target.isContentEditable) return;
+  if (e.target.isContentEditable || e.target.tagName === 'INPUT') return;
+  /* a drag must never start a text selection */
+  e.preventDefault();
+  const ss = getSelection(); if (ss && ss.rangeCount && !editing) ss.removeAllRanges();
   if (editing) document.activeElement.blur();
   closeMenus();
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1493,7 +1530,16 @@ document.addEventListener('keydown', e => {
 });
 addEventListener('beforeunload', () => { if (board) persist(); });
 addEventListener('resize', applyView);
-setInterval(() => { if (board) render(); }, 30 * 60 * 1000);
+setInterval(() => { if (board) render(); }, 60 * 1000);
+setInterval(() => {
+  if (!board) return;
+  for (const it of board.items) {
+    if (it.kind !== 'note') continue;
+    const e = els.get(it.id); if (!e) continue;
+    const tg = e.querySelector('.tag'); if (!tg || tg.classList.contains('editing') || tg.isContentEditable) continue;
+    const txt = tagText(it); if (tg.textContent !== txt) tg.textContent = txt;
+  }
+}, 1000);
 
 /* ---------- note menu: shape, status, tag, tilt ---------- */
 function selectedNotes() { return [...sel].map(find).filter(i => i && i.kind === 'note'); }
