@@ -871,8 +871,9 @@ function frameMembers(f, exclude) {
   notes.sort(ord); images.sort(ord);
   return { notes, images, pins };
 }
-/* 16:9 for every frame (owner 26.10.2026): try each column count, keep the smallest 16:9 box the contents fit in */
-const RATIO = 16 / 9, IMG_W = 2 * G.CELL + G.GAP;
+/* every frame has the owner's screenshot ratio, 1436 x 681 (26.10.2026; replaced 16:9 the same day):
+   try each column count, keep the smallest box of that ratio the contents fit in */
+const RATIO = 1436 / 681, IMG_W = 2 * G.CELL + G.GAP;
 function gridPlan(nSlots, images) {
   let best = null;
   const maxC = Math.max(2, Math.min(12, nSlots || 2));
@@ -1772,14 +1773,14 @@ function migrateBoards() {
     save('jarjestely-v2', true);
   }
   /* every frame 16:9 (owner 26.10.2026): lay boards out once with the new planner */
-  if (!load('kuusitoista-v1', false)) {
+  if (!load('kuvasuhde-v2', false)) {
     for (const e of index) {
       const b = board && board.id === e.id ? board : load('ideataulu-' + e.id, null);
       if (!b || !Array.isArray(b.items) || !b.items.some(i => i.kind === 'frame')) continue;
       tidyItems(b.items);
       if (b === board) { sel.clear(); render(); commit(); fitView(); } else save('ideataulu-' + b.id, b);
     }
-    save('kuusitoista-v1', true);
+    save('kuvasuhde-v2', true);
   }
 }
 function mergeToday(items) {
@@ -2004,7 +2005,7 @@ function unlock(payload) {
   if (payload.board && !load('oletustaulu-tuotu', false)) {
     save('oletustaulu-tuotu', true); save('siisti-v1', true); save('rutiini-osio-v1', true);
     save('jarjestely-v1', true);
-    save('jarjestely-v2', true); save('kuusitoista-v1', true);
+    save('jarjestely-v2', true); save('kuvasuhde-v2', true);
     tidyItems(payload.board.items, organizeIdeaflip(payload.board.items));
     mergeToday(payload.board.items);
     routineSectionItems(payload.board.items, ROUTINE);
