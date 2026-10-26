@@ -396,7 +396,7 @@
     <tr><td>Yhdistä</td><td>Alt + veto lapusta toiseen lappuun. Tyhjään kohtaan pudotus luo uuden yhdistetyn lapun.</td></tr>
         <tr><td>Väri</td><td>Valitse laput ja klikkaa väriä, tai paina 1–7</td></tr>
     <tr><td>Koko</td><td>Vedä oikean alakulman neliöstä</td></tr>
-    <tr><td>Poista</td><td>Roskakori lapun oikeassa yläkulmassa, tai Delete / Backspace</td></tr>
+    <tr><td>Poista</td><td>Tuplaklikkaa lappua oikealla painikkeella, roskakori lapun oikeassa yläkulmassa, tai Delete / Backspace</td></tr>
     <tr><td>Monista</td><td>Ctrl + D</td></tr>
     <tr><td>Siisti</td><td>Suoristaa laput, tekee niistä samankokoiset ja asettelee ne riveihin kehyksiinsä. Kumoa palauttaa.</td></tr>
     <tr><td>Rutiini</td><td>Päivärutiini-kehyksessä jokainen vaihe on lappu. Merkitse tehdyksi kulman merkistä, ja ↺ Nollaa palauttaa kaikki uusiksi.</td></tr>
@@ -871,46 +871,86 @@ function frameMembers(f, exclude) {
   notes.sort(ord); images.sort(ord);
   return { notes, images, pins };
 }
+/* 16:9 for every frame (owner 26.10.2026): try each column count, keep the smallest 16:9 box the contents fit in */
+const RATIO = 16 / 9, IMG_W = 2 * G.CELL + G.GAP;
+function gridPlan(nSlots, images) {
+  let best = null;
+  const maxC = Math.max(2, Math.min(12, nSlots || 2));
+  for (let c = 1; c <= maxC; c++) {
+    const rows = Math.ceil(nSlots / c);
+    const notesH = rows ? rows * STEP - G.GAP : 0;
+    const per = Math.max(1, Math.floor((c * STEP) / (IMG_W + G.GAP)));
+    let imgsH = 0, rowH = 0;
+    images.forEach((im, i) => { const h = im.h * IMG_W / im.w; if (i && i % per === 0) { imgsH += rowH + G.GAP; rowH = 0; } rowH = Math.max(rowH, h); });
+    if (images.length) imgsH += rowH;
+    const cw = Math.max(nSlots ? c * STEP - G.GAP : 0, images.length ? Math.min(images.length, per) * (IMG_W + G.GAP) - G.GAP : 0);
+    const contentH = notesH + (notesH && imgsH ? G.GAP : 0) + imgsH;
+    let W = Math.max(G.PAD * 2 + cw, 560), H = G.TITLE + contentH + G.PAD;
+    if (W / H < RATIO) W = H * RATIO; else H = W / RATIO;
+    if (!best || W < best.W - 0.5) best = { c, per, W: Math.round(W), H: Math.round(W / RATIO) };
+  }
+  return best;
+}
+function fit169(f) { if (f.w / f.h < RATIO) f.w = Math.round(f.h * RATIO); else f.h = Math.round(f.w / RATIO); }
 function slotAt(f, x, y) {
-  const col = clamp(Math.floor((x - f.x - G.PAD + G.GAP / 2) / STEP), 0, G.COLS - 1);
+  const cols = f.cols || G.COLS;
+  const col = clamp(Math.floor((x - f.x - G.PAD + G.GAP / 2) / STEP), 0, cols - 1);
   const row = Math.max(0, Math.floor((y - f.y - G.TITLE + G.GAP / 2) / STEP));
-  return row * G.COLS + col;
+  return row * cols + col;
 }
 /* lay a frame out; `slots` may contain null placeholders (an empty cell for the note being dragged) */
 function layoutFrame(f, slots, images, pins) {
+  const plan = gridPlan(slots.length, images), cols = plan.c;
+  f.cols = cols;
   slots.forEach((n, i) => {
     if (!n) return;
     n.rot = 0; n.w = G.CELL; n.h = G.CELL;
-    n.x = f.x + G.PAD + (i % G.COLS) * STEP; n.y = f.y + G.TITLE + Math.floor(i / G.COLS) * STEP;
+    n.x = f.x + G.PAD + (i % cols) * STEP; n.y = f.y + G.TITLE + Math.floor(i / cols) * STEP;
   });
-  let y = f.y + G.TITLE + (slots.length ? Math.ceil(slots.length / G.COLS) * STEP : 0);
-  const iw = 2 * G.CELL + G.GAP;
+  let y = f.y + G.TITLE + (slots.length ? Math.ceil(slots.length / cols) * STEP : 0);
   let rowH = 0;
   images.forEach((im, i) => {
-    const k = iw / im.w; im.w = Math.round(iw); im.h = Math.round(im.h * k); im.rot = 0;
-    if (i && i % 2 === 0) { y += rowH + G.GAP; rowH = 0; }
-    im.x = f.x + G.PAD + (i % 2) * (iw + G.GAP); im.y = y; rowH = Math.max(rowH, im.h);
+    const k = IMG_W / im.w; im.w = Math.round(IMG_W); im.h = Math.round(im.h * k); im.rot = 0;
+    if (i && i % plan.per === 0) { y += rowH + G.GAP; rowH = 0; }
+    im.x = f.x + G.PAD + (i % plan.per) * (IMG_W + G.GAP); im.y = y; rowH = Math.max(rowH, im.h);
   });
-  if (images.length) y += rowH + G.GAP;
   for (const p of pins) { p.n.x = Math.round(p.im.x + p.rx * p.im.w); p.n.y = Math.round(p.im.y + p.ry * p.im.h); p.n.w = Math.round(p.rw * p.im.w); p.n.h = Math.round(p.rh * p.im.h); }
-  const used = y - (f.y + G.TITLE) - (slots.length || images.length ? G.GAP : 0);
-  f.w = G.PAD * 2 + G.COLS * G.CELL + (G.COLS - 1) * G.GAP;
-  f.h = Math.max(320, G.TITLE + Math.max(0, used) + G.PAD);
-  if (f.parent) {
-    const par = find(f.parent);
-    if (par) { const kids = board.items.filter(k => k.kind === 'frame' && k.parent === par.id); par.h = G.TITLE + Math.max(...kids.map(k => k.h)) + G.PAD; }
+  f.w = plan.W; f.h = plan.H;
+}
+/* a parent holds its sections side by side and is itself 16:9 */
+const SECTION_GAP = 40;
+function sizeParent(par, kids) {
+  let x = par.x + G.PAD, maxH = 0;
+  for (const k of kids) { x += k.w + SECTION_GAP; maxH = Math.max(maxH, k.h); }
+  par.w = Math.round(x - SECTION_GAP + G.PAD - par.x); par.h = Math.round(G.TITLE + maxH + G.PAD);
+  fit169(par);
+}
+/* plans: Map(frame -> {slots, images, pins}) worked out BEFORE anything moved; sections not in the map keep their contents */
+function applyPlans(plans, exclude) {
+  const parents = new Set();
+  for (const [f, pl] of plans) { if (f.parent) parents.add(f.parent); else layoutFrame(f, pl.slots, pl.images, pl.pins); }
+  for (const pid of parents) {
+    const par = find(pid); if (!par) continue;
+    const kids = board.items.filter(k => k.kind === 'frame' && k.parent === pid).sort((a, b) => a.x - b.x);
+    const all = kids.map(k => plans.get(k) || (() => { const m = frameMembers(k, exclude); return { slots: m.notes, images: m.images, pins: m.pins }; })());
+    let x = par.x + G.PAD;
+    kids.forEach((k, i) => { k.x = x; k.y = par.y + G.TITLE; layoutFrame(k, all[i].slots, all[i].images, all[i].pins); x += k.w + SECTION_GAP; });
+    sizeParent(par, kids);
   }
 }
-function reflowFrame(f, exclude) { if (!f) return; const m = frameMembers(f, exclude); layoutFrame(f, m.notes, m.images, m.pins); }
+function reflowFrame(f, exclude) { if (!f) return; const m = frameMembers(f, exclude); applyPlans(new Map([[f, { slots: m.notes, images: m.images, pins: m.pins }]]), exclude); }
 /* dragged notes: `insert` true puts them into the slot, false only leaves an empty gap there */
 function flowAround(ids, items, srcFrames, pt, insert) {
   const target = frameAt(pt.x, pt.y);
-  for (const f of srcFrames) if (f !== target) reflowFrame(f, ids);
-  if (!target) return null;
-  const m = frameMembers(target, ids);
-  const slot = clamp(slotAt(target, pt.x, pt.y), 0, m.notes.length);
-  const fill = insert ? items : items.map(() => null);
-  layoutFrame(target, [...m.notes.slice(0, slot), ...fill, ...m.notes.slice(slot)], m.images, m.pins);
+  const plans = new Map();
+  for (const f of srcFrames) if (f !== target) { const m = frameMembers(f, ids); plans.set(f, { slots: m.notes, images: m.images, pins: m.pins }); }
+  if (target) {
+    const m = frameMembers(target, ids);
+    const slot = clamp(slotAt(target, pt.x, pt.y), 0, m.notes.length);
+    const fill = insert ? items : items.map(() => null);
+    plans.set(target, { slots: [...m.notes.slice(0, slot), ...fill, ...m.notes.slice(slot)], images: m.images, pins: m.pins });
+  }
+  applyPlans(plans, ids);
   return target;
 }
 
@@ -941,6 +981,7 @@ function applyMove(d) {
 
 /* ---------- pointer interaction ---------- */
 const pointers = new Map();
+let lastRight = { id: null, t: 0 };
 let drag = null, pinch = null;
 
 function hitInfo(target) {
@@ -986,7 +1027,7 @@ vp.addEventListener('pointerdown', e => {
 
   if (e.button === 1 || e.button === 2) {
     if (h.type === 'vote' && e.button === 2) { vote(h.id, -1); return; }
-    drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, mid: e.button === 1 && h.type === 'bg', cycle: null };
+    drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, mid: e.button === 1 && h.type === 'bg', cycle: null, rid: e.button === 2 && h.type === 'item' ? h.id : null };
     vp.classList.add('panning'); return;
   }
   if (h.type === 'freset' && e.button === 0) { resetRoutine(h.id); return; }
@@ -1140,6 +1181,19 @@ function endPointer(e) {
         flowAround(new Set([it.id]), [it], new Set(), w, true);
         sel.clear(); sel.add(it.id); render(); startEdit(it.id);
       } else addNote(w.x, w.y);
+      return;
+    }
+    /* double right-click on a note deletes it (owner 26.10.2026) */
+    if (!d.moved && d.rid) {
+      const now = Date.now();
+      if (lastRight.id === d.rid && now - lastRight.t < 450) {
+        lastRight = { id: null, t: 0 };
+        const it = find(d.rid);
+        if (it && it.kind !== 'frame') {
+          const f = it.kind === 'note' || it.kind === 'text' ? frameOf(it) : null;
+          removeIds([it.id]); if (f) reflowFrame(f); render(); commit(); toast('Poistettu. Kumoa: Ctrl + Z');
+        }
+      } else lastRight = { id: d.rid, t: now };
       return;
     }
     if (!d.moved && d.cycle) {
@@ -1717,6 +1771,16 @@ function migrateBoards() {
     }
     save('jarjestely-v2', true);
   }
+  /* every frame 16:9 (owner 26.10.2026): lay boards out once with the new planner */
+  if (!load('kuusitoista-v1', false)) {
+    for (const e of index) {
+      const b = board && board.id === e.id ? board : load('ideataulu-' + e.id, null);
+      if (!b || !Array.isArray(b.items) || !b.items.some(i => i.kind === 'frame')) continue;
+      tidyItems(b.items);
+      if (b === board) { sel.clear(); render(); commit(); fitView(); } else save('ideataulu-' + b.id, b);
+    }
+    save('kuusitoista-v1', true);
+  }
 }
 function mergeToday(items) {
   const old = items.find(i => i.kind === 'frame' && !i.parent && i.title === 'TÄNÄÄN');
@@ -1847,26 +1911,23 @@ function tidyItems(items, assign) {
   };
   const ROW_W = Infinity, SGAP = 40;   /* one horizontal row (owner 23.10.2026) */
   const kidsOf = f => frames.filter(k => k.parent === f.id);
+  const split = list => [list.filter(i => i.kind !== 'image').sort(order), list.filter(i => i.kind === 'image').sort(order)];
   let x = 0, y = 0, rowMax = 0;
   for (const f of frames.filter(fr => !fr.parent || !frames.some(p => p.id === fr.parent))) {
     const kids = kidsOf(f);
-    const w = kids.length ? PAD * 2 + kids.length * FW + (kids.length - 1) * SGAP : FW;
-    if (x > 0 && x + w > ROW_W) { x = 0; y += rowMax + FGAP; rowMax = 0; }
     if (kids.length) {
       /* anything lying directly on the parent goes into its first section */
       groups.get(kids[0]).push(...groups.get(f));
-      let kx = x + PAD, kmax = 0;
-      for (const k of kids) {
-        const h = place(groups.get(k), kx + PAD, y + TITLE + TITLE, COLS);
-        k.x = kx; k.y = y + TITLE; k.w = FW; k.h = Math.max(320, TITLE + h + PAD);
-        kmax = Math.max(kmax, k.h); kx += FW + SGAP;
-      }
-      f.x = x; f.y = y; f.w = w; f.h = TITLE + kmax + PAD;
+      f.x = x; f.y = y;
+      let kx = x + PAD;
+      for (const k of kids) { k.x = kx; k.y = y + TITLE; const [n, im] = split(groups.get(k)); layoutFrame(k, n, im, []); kx += k.w + SECTION_GAP; }
+      sizeParent(f, kids);
     } else {
-      const h = place(groups.get(f), x + PAD, y + TITLE, COLS);
-      f.x = x; f.y = y; f.w = FW; f.h = Math.max(320, TITLE + h + PAD);
+      f.x = x; f.y = y;
+      const [n, im] = split(groups.get(f));
+      layoutFrame(f, n, im, []);
     }
-    rowMax = Math.max(rowMax, f.h); x += w + FGAP;
+    rowMax = Math.max(rowMax, f.h); x += f.w + FGAP;
   }
   if (loose.length) {
     const ly = frames.length ? y + rowMax + FGAP * 1.5 : 0;
@@ -1943,7 +2004,7 @@ function unlock(payload) {
   if (payload.board && !load('oletustaulu-tuotu', false)) {
     save('oletustaulu-tuotu', true); save('siisti-v1', true); save('rutiini-osio-v1', true);
     save('jarjestely-v1', true);
-    save('jarjestely-v2', true);
+    save('jarjestely-v2', true); save('kuusitoista-v1', true);
     tidyItems(payload.board.items, organizeIdeaflip(payload.board.items));
     mergeToday(payload.board.items);
     routineSectionItems(payload.board.items, ROUTINE);
