@@ -140,6 +140,12 @@
     border-radius: 3px; background: var(--sel); opacity: 0; pointer-events: auto;
   }
   .frame .rs { right: 4px; bottom: 4px; }
+  /* move handle in the top-left corner: drag it to move the note at any time (owner 27.10.2026) */
+  .mh {
+    position: absolute; left: -6px; top: -6px; width: 14px; height: 14px; cursor: move; z-index: 3;
+    border-radius: 3px; background: var(--sel); opacity: 0; pointer-events: auto;
+  }
+  .item:hover .mh, .item.sel .mh { opacity: 1; }
   .lh {
     position: absolute; right: -9px; top: 50%; width: 16px; height: 16px; margin-top: -8px;
     border-radius: 50%; background: var(--panel); border: 3px solid var(--sel); cursor: crosshair; opacity: 0;
@@ -659,7 +665,7 @@ function makeEl(it) {
     e.className = 'item ' + (it.kind === 'text' ? 'textitem' : 'note');
     e.innerHTML = (it.kind === 'note' ? '<div class="bgw"><div class="bg"></div></div>' : '') + '<div class="txt"></div>' +
       (it.kind === 'note' ? '<span class="tag"></span><span class="status"></span>' : '') +
-      '<div class="rs"></div>' + TRASH;
+      '<div class="rs"></div><div class="mh"></div>' + TRASH;
     $('noteLayer').append(e);
   }
   e.dataset.id = it.id;
@@ -824,7 +830,10 @@ function darken(hex) {
 /* ---------- creation ---------- */
 function addNote(x, y, text = '', edit = true) {
   const it = { id: uid(), kind: 'note', x: Math.round(x - NOTE_W / 2), y: Math.round(y - NOTE_H / 2), w: NOTE_W, h: NOTE_H, text, color, votes: 0, status: 'new', created: Date.now() };
-  board.items.push(it); sel.clear(); sel.add(it.id); render();
+  board.items.push(it);
+  /* inside a section a new note goes straight into the grid at the clicked slot, at the grid's size (owner 27.10.2026) */
+  if (frameAt(x, y)) flowAround(new Set([it.id]), [it], new Set(), { x, y }, true);
+  sel.clear(); sel.add(it.id); render();
   if (edit) startEdit(it.id); else commit();
   return it;
 }
@@ -1284,6 +1293,7 @@ function hitInfo(target) {
   if (target.closest('.status')) return { type: 'cycle', id: target.closest('.item').dataset.id };
   if (target.closest('.tag')) return { type: 'tag', id: target.closest('.item').dataset.id };
   if (target.closest('.vote')) return { type: 'vote', id: target.closest('.item').dataset.id };
+  if (target.closest('.mh')) return { type: 'mover', id: target.closest('.item').dataset.id };
   if (target.closest('.rs')) return { type: 'resize', id: (target.closest('.item') || target.closest('.frame')).dataset.id };
   if (target.closest('.lh')) return { type: 'link', id: target.closest('.item').dataset.id };
   if (target.closest('.ftitle')) return { type: 'item', id: target.closest('.frame').dataset.id };
@@ -1341,6 +1351,7 @@ vp.addEventListener('pointerdown', e => {
     return;
   }
   if (h.type === 'vote') { vote(h.id, e.altKey ? -1 : 1); return; }
+  if (h.type === 'mover') { beginMove(h.id, w, false); return; }
   if (h.type === 'resize') {
     const it = find(h.id);
     drag = { type: 'resize', id: h.id, sx: w.x, sy: w.y, w0: it.w, h0: it.h, moved: false }; return;
@@ -1475,13 +1486,8 @@ function endPointer(e) {
       noteClick(d.clickItem, e); return;
     }
     if (!d.moved && d.mid) {
-      const w = toWorld(e.clientX, e.clientY), f = frameAt(w.x, w.y);
-      if (f) {
-        const it = { id: uid(), kind: 'note', x: Math.round(w.x - G.CELL / 2), y: Math.round(w.y - G.CELL / 2), w: G.CELL, h: G.CELL, text: '', color, votes: 0, status: 'new', created: Date.now() };
-        board.items.push(it);
-        flowAround(new Set([it.id]), [it], new Set(), w, true);
-        sel.clear(); sel.add(it.id); render(); startEdit(it.id);
-      } else addNote(w.x, w.y);
+      const w = toWorld(e.clientX, e.clientY);
+      addNote(w.x, w.y);
       return;
     }
     /* double right-click on a note deletes it (owner 26.10.2026) */
