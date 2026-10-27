@@ -265,6 +265,13 @@
   #top, #routine, #zoom { display: none !important; }
   body.rt-open #viewport { right: 0; }
   body.rt-open #zoom { right: 16px; }
+  body.vain-rutiini #calnav, body.vain-rutiini #divider, body.vain-rutiini #linkG { display: none !important; }
+  #allBtn {
+    display: none; position: fixed; z-index: 12; left: 50%; bottom: 16px; transform: translateX(-50%);
+    font: inherit; font-weight: 600; font-size: 15px; color: #f3e9d2; background: rgba(38, 33, 28, .9);
+    border: 1px solid rgba(243,233,210,.45); border-radius: 999px; padding: 10px 20px; cursor: pointer;
+  }
+  @media (max-width: 800px) { #allBtn { display: block; } }
   #calnav {
     position: fixed; z-index: 12; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
     background: rgba(38, 33, 28, .85); border: 1px solid var(--line); border-radius: 999px; padding: 6px 8px;
@@ -314,6 +321,7 @@
   </div>
 </div>
 <div id="box"></div>
+<button type="button" id="allBtn">Näytä kaikki</button>
 <div id="calnav">
   <button type="button" id="calPrev" title="Edellinen kuukausi" aria-label="Edellinen kuukausi">‹</button>
   <input type="date" id="calDate" aria-label="Siirry päivään">
@@ -764,6 +772,15 @@ function render() {
     updateEl(e, it); seen.add(it.id);
   }
   for (const [id, e] of els) if (!seen.has(id)) { e.remove(); els.delete(id); }
+  /* on a phone only the routine section shows */
+  const onlyRoutine = routineOnly() ? board.items.find(i => i.kind === 'frame' && i.routine) : null;
+  for (const it of board.items) {
+    const e = els.get(it.id); if (!e) continue;
+    let show = true;
+    if (onlyRoutine) { if (it === onlyRoutine) show = true; else { const b = bounds(it), c = { x: b.x + b.w / 2, y: b.y + b.h / 2 }; const r = onlyRoutine; show = c.x > r.x && c.x < r.x + r.w && c.y > r.y && c.y < r.y + r.h && it.kind !== 'frame'; } }
+    e.style.display = show ? '' : 'none';
+  }
+  document.body.classList.toggle('vain-rutiini', !!onlyRoutine);
   /* keep DOM order = array order so later items draw on top */
   const order = board.items.map(i => i.id).join(',');
   if (order !== lastOrder) { for (const it of board.items) { const e = els.get(it.id); e.parentNode.append(e); } lastOrder = order; $('frameLayer').prepend($('divider'), $('monthLabels')); }
@@ -931,6 +948,9 @@ function frameMembers(f, exclude) {
 /* on phones every frame is 1 : 1.5 (owner 27.10.2026) */
 const MOBILE_Q = matchMedia('(max-width: 800px)');
 const layoutMode = () => MOBILE_Q.matches ? 'mobile' : 'desktop';
+/* on a phone: the routine only, unless "show all" is on */
+let mobileAll = load('mobiili-kaikki', false);
+const routineOnly = () => MOBILE_Q.matches && !mobileAll;
 const ratio = () => MOBILE_Q.matches ? 1 / 1.5 : 1436 / 681;
 const IMG_W = 2 * G.CELL + G.GAP;
 function gridPlan(nSlots, images) {
@@ -962,10 +982,20 @@ function ensureLayoutMode() {
   board.layoutMode = m;
   if (first && m === 'desktop') { persistSoon(); if (typeof markSynced === 'function') markSynced(); return; }
   if (board.items.some(i => i.kind === 'frame')) { tidyItems(board.items); sel.clear(); render(); commit(); if (board.divider && typeof towerView === 'function') towerView(); else fitView(); }
+  else render();
   clearTimeout(saveTimer); persist();
   if (typeof markSynced === 'function') markSynced();
 }
-MOBILE_Q.addEventListener('change', () => ensureLayoutMode());
+MOBILE_Q.addEventListener('change', () => { ensureLayoutMode(); if (board) { render(); if (routineOnly()) fitView(); } });
+function setMobileAll(on) {
+  mobileAll = on; save('mobiili-kaikki', on);
+  $('allBtn').textContent = on ? 'Vain rutiini' : 'Näytä kaikki';
+  if (!board) return;
+  render();
+  if (on && board.divider) towerView(); else fitView();
+}
+$('allBtn').textContent = mobileAll ? 'Vain rutiini' : 'Näytä kaikki';
+$('allBtn').onclick = () => setMobileAll(!mobileAll);
 /* fixed section size (owner 27.10.2026): the section never changes, the notes do */
 const FIX_W = 560, FP = 16, FT = 56, GAP_FR = 0.12;
 const fixH = () => Math.round(FIX_W / ratio());
@@ -1556,7 +1586,8 @@ function vote(id, d) {
 }
 
 function fitView() {
-  const b = allBounds(board.items.filter(i => bounds(i).x > HIDDEN_X / 2));
+  const rf = routineOnly() ? board.items.find(i => i.kind === 'frame' && i.routine) : null;
+  const b = rf ? bounds(rf) : allBounds(board.items.filter(i => bounds(i).x > HIDDEN_X / 2));
   if (!b) { board.view = { x: vp.clientWidth / 2, y: vp.clientHeight / 2, z: 1 }; applyView(); return; }
   const pad = 80, top = 0;
   const z = clamp(Math.min((vp.clientWidth - pad * 2) / Math.max(b.w, 1), (vp.clientHeight - pad * 2 - top) / Math.max(b.h, 1)), 1e-6, 1.5);
@@ -2413,7 +2444,7 @@ function stepMonth(n) {
 }
 /* first look: calendar and column fill the width, this month at the top */
 function towerView() {
-  const dv = board.divider; if (!dv) { fitView(); return; }
+  const dv = board.divider; if (!dv || routineOnly()) { fitView(); return; }
   const right = Math.max(...board.items.filter(i => i.kind === 'frame' && !i.parent && !i.day).map(f => f.x + f.w), dv.x);
   const z = Math.max(1e-6, (vp.clientWidth - 80) / Math.max(1, right + 40));
   const m = towerList().find(x => x.key === anchorMonth());
