@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Geneesi</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <meta name="description" content="Lappu- ja ideataulu: ideoi, järjestä, äänestä, yhdistä ja vie">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -542,8 +544,10 @@ function persist() {
   if (e) { e.name = board.name; e.updated = Date.now(); }
   save('ideataulut', index);
   if (!ok) toast('Tallennus epäonnistui: selaimen tila voi olla täynnä');
+  cloudSoon();
 }
 function persistSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 300); }
+function cloudSoon() { if (typeof cloudPush === 'function') cloudPush(); }
 
 /* ---------- history ---------- */
 function snap() { return JSON.stringify({ items: board.items, links: board.links }); }
@@ -905,9 +909,10 @@ function ensureLayoutMode() {
   if (board.layoutMode === m) return;
   const first = !board.layoutMode;
   board.layoutMode = m;
-  if (first && m === 'desktop') { persistSoon(); return; }
+  if (first && m === 'desktop') { persistSoon(); if (typeof markSynced === 'function') markSynced(); return; }
   if (board.items.some(i => i.kind === 'frame')) { tidyItems(board.items); sel.clear(); render(); commit(); fitView(); }
-  persistSoon();
+  clearTimeout(saveTimer); persist();
+  if (typeof markSynced === 'function') markSynced();
 }
 MOBILE_Q.addEventListener('change', () => ensureLayoutMode());
 function slotAt(f, x, y) {
@@ -1981,11 +1986,90 @@ function migrateTidy() {
   save('siisti-v1', true);
 }
 
+/* ---------- sync across devices (Solukko's Firestore, encrypted) ---------- */
+const FB_CONFIG = { apiKey: 'AIzaSyAeWTSjX8-M_-Xs780nnC_0o9d1YmYroGo', authDomain: 'solukko.firebaseapp.com', projectId: 'solukko',
+  storageBucket: 'solukko.firebasestorage.app', messagingSenderId: '143174538900', appId: '1:143174538900:web:b55db7c61ce724827a4681' };
+const DEVICE = load('geneesi-laite', null) || (() => { const id = uid() + uid(); save('geneesi-laite', id); return id; })();
+let cloudRef = null, cloudApplying = false, cloudTimer = null, cloudSeen = load('geneesi-synkka', 0), cloudOk = false, cloudBase = null;
+/* what counts as a change worth uploading: everything except each screen's own zoom and position */
+const contentKey = o => JSON.stringify(o.index) + JSON.stringify(Object.keys(o.boards).sort().map(k => { const b = o.boards[k]; return { ...b, view: null }; }));
+function markSynced() { try { cloudBase = contentKey(collectBoards()); } catch { } }
+async function sha256hex(u8) { const h = await crypto.subtle.digest('SHA-256', u8); return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join(''); }
+function collectBoards() {
+  if (board) save('ideataulu-' + board.id, board);
+  const boards = {};
+  for (const e of index) { const b = load('ideataulu-' + e.id, null); if (b) boards[e.id] = b; }
+  return { index, boards, current: board && board.id };
+}
+async function sealCloud(obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, syncKey, new TextEncoder().encode(JSON.stringify(obj)));
+  return { v: 1, iv: tob64(iv), data: tob64(data) };
+}
+async function openCloud(d) {
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(d.iv) }, syncKey, b64(d.data));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+function cloudPush() {
+  if (!cloudRef || cloudApplying) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(async () => {
+    try {
+      const obj = collectBoards(), key = contentKey(obj);
+      if (key === cloudBase) return;
+      const sealed = await sealCloud(obj);
+      if (sealed.data.length > 900000) { toast('Taulu on liian iso synkronoitavaksi'); return; }
+      const updated = Date.now();
+      await cloudRef.set({ ...sealed, updated, device: DEVICE });
+      cloudSeen = updated; save('geneesi-synkka', updated); cloudOk = true; cloudBase = key;
+    } catch (e) { console.warn('synkronointi: tallennus ei onnistunut', e && (e.code || e.message)); }
+  }, 1500);
+}
+function applyCloud(obj) {
+  if (!obj || !obj.boards) return;
+  if (drag || editing) { setTimeout(() => applyCloud(obj), 800); return; }
+  cloudApplying = true;
+  try {
+    for (const id in obj.boards) save('ideataulu-' + id, obj.boards[id]);
+    index = Array.isArray(obj.index) ? obj.index : index; save('ideataulut', index);
+    const keep = board && obj.boards[board.id] ? board.id : (obj.current || (index[0] && index[0].id));
+    const view = board && board.view;
+    if (keep) {
+      const b = obj.boards[keep]; if (b && view && board && board.id === keep) b.view = view;   /* keep this screen's zoom and position */
+      if (b) save('ideataulu-' + keep, b);
+      openBoard(keep);
+      ensureLayoutMode();
+    }
+    markSynced();
+  } finally { cloudApplying = false; }
+}
+async function startSync() {
+  if (!syncKey || !syncRaw || typeof firebase === 'undefined') return;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+    const id = await sha256hex(syncRaw);
+    cloudRef = firebase.firestore().collection('geneesi').doc(id);
+    const snap = await cloudRef.get();
+    if (snap.exists && (!cloudSeen || snap.data().updated > cloudSeen) && snap.data().device !== DEVICE) {
+      applyCloud(await openCloud(snap.data()));
+      cloudSeen = snap.data().updated; save('geneesi-synkka', cloudSeen);
+    } else { if (!snap.exists) cloudBase = null; cloudPush(); }
+    cloudOk = true;
+    cloudRef.onSnapshot(async sn => {
+      if (!sn.exists) return;
+      const d = sn.data();
+      if (d.device === DEVICE || d.updated <= cloudSeen) return;
+      cloudSeen = d.updated; save('geneesi-synkka', d.updated);
+      try { applyCloud(await openCloud(d)); toast('Päivitetty toiselta laitteelta'); } catch (e) { console.warn('synkronointi: avaus ei onnistunut', e); }
+    }, e => console.warn('synkronointi: kuuntelu ei onnistunut', e && (e.code || e.message)));
+  } catch (e) { console.warn('synkronointi ei ole käytössä', e && (e.code || e.message)); }
+}
+
 /* ---------- lock: the board and routine live only in the encrypted file ---------- */
 /* the browser remembers the derived key (not the password) after the first unlock; a new salt asks again */
 const b64 = x => Uint8Array.from(atob(x), c => c.charCodeAt(0));
 const tob64 = u => btoa(String.fromCharCode(...new Uint8Array(u)));
-let encFile = null;
+let encFile = null, syncKey = null, syncRaw = null;
 async function getEnc() {
   if (encFile) return encFile;
   const r = await fetch('oletus.enc.json', { cache: 'no-store' });
@@ -2000,9 +2084,11 @@ async function decryptPayload(pw) {
   const d = await getEnc();
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
   const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64(d.salt), iterations: d.iter, hash: 'SHA-256' },
-    base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+    base, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
   const payload = await openWithKey(key, d);
-  save('geneesi-avain', { salt: d.salt, key: tob64(await crypto.subtle.exportKey('raw', key)) });
+  const raw = await crypto.subtle.exportKey('raw', key);
+  save('geneesi-avain', { salt: d.salt, key: tob64(raw) });
+  syncKey = key; syncRaw = new Uint8Array(raw);
   return payload;
 }
 async function tryRemembered() {
@@ -2011,8 +2097,10 @@ async function tryRemembered() {
   try {
     const d = await getEnc();
     if (d.salt !== k.salt) return null;
-    const key = await crypto.subtle.importKey('raw', b64(k.key), { name: 'AES-GCM' }, false, ['decrypt']);
-    return await openWithKey(key, d);
+    const key = await crypto.subtle.importKey('raw', b64(k.key), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+    const payload = await openWithKey(key, d);
+    syncKey = key; syncRaw = b64(k.key);
+    return payload;
   } catch { return null; }
 }
 function unlock(payload) {
@@ -2031,6 +2119,7 @@ function unlock(payload) {
     importJson(new File([JSON.stringify(payload.board)], 'oletustaulu.json'));
   } else { migrateTidy(); ensureRoutineSection(); migrateBoards(); }
   ensureLayoutMode();
+  startSync();
   const f = new URLSearchParams(location.search).get('tuo');
   if (f && /^[\w.-]+\.json$/.test(f)) {
     history.replaceState(null, '', location.pathname);
