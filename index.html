@@ -1076,6 +1076,7 @@ function monthGrid(key) {
 }
 const monthKey = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 function shownMonth() { return load('kalenteri-kk', null) || monthKey(new Date()); }
+function anchorMonth() { return load('kalenteri-ankkuri', null) || monthKey(new Date()); }
 function arrangeTops(tops, owned) {
   towerMonths = [];
   const days = tops.filter(f => f.day).sort((a, b) => (a.day < b.day ? -1 : 1));
@@ -1113,12 +1114,14 @@ function arrangeTops(tops, owned) {
     calRight = 7 * (cellW + CAL_GAP) - CAL_GAP; calBottom = y - MONTH_GAP;
   }
   const colX = days.length ? calRight + DIVIDER_GAP * 2 : 0;
-  const now = towerMonths.find(m => m.key === monthKey(new Date()));
-  let y = now ? now.y : 0;
+  const anchor = towerMonths.find(m => m.key === anchorMonth()) || towerMonths.find(m => m.key === monthKey(new Date()));
+  const colTop = anchor ? anchor.y : 0;
+  let y = colTop;
   for (const f of others) { moveTop(f, owned, colX, y); y += f.h + FRAME_GAP; }
   const bottom = Math.max(calBottom, y - FRAME_GAP);
   const colBottom = y - FRAME_GAP;
-  return days.length ? { x: calRight + DIVIDER_GAP, y: -60, h: Math.max(calBottom, colBottom) + 120, months: towerMonths.slice() } : null;
+  /* the dividing line is only as tall as the column of sections (owner 27.10.2026) */
+  return days.length ? { x: calRight + DIVIDER_GAP, y: colTop - 40, h: colBottom - colTop + 80, months: towerMonths.slice(), anchor: anchor ? anchor.key : null } : null;
 }
 /* one section per day: from this week's Monday, always CAL_WEEKS weeks ahead */
 function ensureCalendar(items) {
@@ -2375,25 +2378,45 @@ function glideTo(targetY) {
   };
   glide = requestAnimationFrame(step);
 }
-function scrollToMonth(key, pickDay) {
-  const m = towerList().find(x => x.key === key); if (!m) { toast('Päivä ei ole kalenterissa'); return; }
-  glideTo(NAV_TOP - m.y * board.view.z);
+function setAnchor(key, pickDay) {
+  const list = towerList();
+  const from = list.find(x => x.key === (board.divider && board.divider.anchor)), to = list.find(x => x.key === key);
+  if (!to) { toast('Päivä ei ole kalenterissa'); return; }
+  save('kalenteri-ankkuri', key);
+  const dy = from ? to.y - from.y : 0;
+  board.divider = arrangeItems(board.items);
+  /* keep the column where it is on screen: the calendar is what moves */
+  board.view.y -= dy * board.view.z; applyView();
   sel.clear();
   if (pickDay) { const f = board.items.find(i => i.kind === 'frame' && i.day === pickDay); if (f) sel.add(f.id); }
   render();
+  /* slide: calendar elements start where they were and glide into place */
+  if (dy) {
+    const cal = new Set();
+    for (const f of board.items) if (f.kind === 'frame' && f.day) cal.add(f.id);
+    for (const it of board.items) { if (it.kind === 'frame') continue; const f = frameOf(it); if (f && f.day) cal.add(it.id); }
+    const moving = [...cal].map(id => els.get(id)).filter(Boolean);
+    for (const e of moving) { e.style.transition = 'none'; e.style.translate = `0 ${dy}px`; }
+    void vp.offsetWidth;
+    for (const e of moving) { e.style.transition = 'translate .32s cubic-bezier(.2,.8,.2,1)'; e.style.translate = '0 0'; }
+    setTimeout(() => { for (const e of moving) { e.style.transition = ''; e.style.translate = ''; } }, 400);
+  }
+  clearTimeout(saveTimer); persist(); if (typeof markSynced === 'function') markSynced();
   $('calDate').value = pickDay || key + '-01';
 }
+function scrollToMonth(key, pickDay) { setAnchor(key, pickDay); }
 function stepMonth(n) {
-  const list = towerList(), cur = monthAtTop(); if (!cur) return;
-  const i = clamp(list.indexOf(cur) + n, 0, list.length - 1);
-  scrollToMonth(list[i].key);
+  const list = towerList(); if (!list.length) return;
+  const cur = list.findIndex(x => x.key === (board.divider && board.divider.anchor));
+  const i = clamp((cur < 0 ? 0 : cur) + n, 0, list.length - 1);
+  setAnchor(list[i].key);
 }
 /* first look: calendar and column fill the width, this month at the top */
 function towerView() {
   const dv = board.divider; if (!dv) { fitView(); return; }
   const right = Math.max(...board.items.filter(i => i.kind === 'frame' && !i.parent && !i.day).map(f => f.x + f.w), dv.x);
   const z = Math.max(1e-6, (vp.clientWidth - 80) / Math.max(1, right + 40));
-  const m = towerList().find(x => x.key === monthKey(new Date()));
+  const m = towerList().find(x => x.key === anchorMonth());
   board.view = { z, x: 40, y: NAV_TOP - (m ? m.y : 0) * z };
   applyView(); persistSoon();
 }
@@ -2459,6 +2482,7 @@ function unlock(payload) {
   ensureLayoutMode();
   if (board) {
     $('calDate').value = isoDay(new Date());
+    save('kalenteri-ankkuri', monthKey(new Date()));
     const added = ensureCalendar(board.items);
     /* new day sections get their size from the grid planner, then everything is arranged */
     if (added) for (const f of board.items.filter(i => i.kind === 'frame' && i.day && i.x < -1e5 && i.y < -1e5)) layoutFrame(f, [], [], []);
