@@ -961,7 +961,7 @@ function ensureLayoutMode() {
   const first = !board.layoutMode;
   board.layoutMode = m;
   if (first && m === 'desktop') { persistSoon(); if (typeof markSynced === 'function') markSynced(); return; }
-  if (board.items.some(i => i.kind === 'frame')) { tidyItems(board.items); sel.clear(); render(); commit(); fitView(); }
+  if (board.items.some(i => i.kind === 'frame')) { tidyItems(board.items); sel.clear(); render(); commit(); if (board.divider && typeof towerView === 'function') towerView(); else fitView(); }
   clearTimeout(saveTimer); persist();
   if (typeof markSynced === 'function') markSynced();
 }
@@ -1059,8 +1059,14 @@ function moveTop(f, owned, x, y) {
   for (const it of owned.get(f) || []) { if (it.kind === 'stroke') it.points = it.points.map(q => [q[0] + dx, q[1] + dy]); else { it.x += dx; it.y += dy; } }
 }
 /* returns the divider line */
-const HIDDEN_X = -2e6;
+const HIDDEN_X = -2e6, TOWER_BEFORE = 10, TOWER_AFTER = 10;
 const fadedIds = new Set();
+let towerMonths = [];
+function towerRange() {
+  const t = new Date();
+  const a = new Date(t.getFullYear(), t.getMonth() - TOWER_BEFORE, 1), b = new Date(t.getFullYear(), t.getMonth() + TOWER_AFTER + 1, 0);
+  return [isoDay(a), isoDay(b)];
+}
 /* first and last day shown for a month: whole weeks, Monday to Sunday */
 function monthGrid(key) {
   const [yy, mm] = key.split('-').map(Number);
@@ -1071,47 +1077,58 @@ function monthGrid(key) {
 const monthKey = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 function shownMonth() { return load('kalenteri-kk', null) || monthKey(new Date()); }
 function arrangeTops(tops, owned) {
+  towerMonths = [];
   const days = tops.filter(f => f.day).sort((a, b) => (a.day < b.day ? -1 : 1));
   const others = tops.filter(f => !f.day).sort((a, b) => (a.y - b.y) || (a.x - b.x));
   let calRight = 0, calBottom = 0;
   const labels = [];
   if (days.length) {
-    /* one month at a time (owner 27.10.2026): full weeks from the Monday before the 1st to the Sunday after the last day;
-       the neighbouring months' days in those rows are shown at 50 % (faded); every other day waits far away */
+    /* the tower (owner 27.10.2026): every month from 10 before to 10 after this one, each its own block, oldest on top */
     const cellW = Math.max(...days.map(f => f.w)), cellH = Math.max(...days.map(f => f.h));
-    const [gs, ge] = monthGrid(shownMonth());
-    const inGrid = f => f.day >= gs && f.day <= ge;
-    const start = new Date(gs + 'T00:00').getTime();
+    const [rs, re] = towerRange();
     fadedIds.clear();
-    let hidden = 0, rows = 0;
+    const months = [];
+    let hidden = 0;
     for (const f of days) {
-      if (inGrid(f)) {
-        const t = new Date(f.day + 'T00:00').getTime();
-        const row = Math.round((t - start) / DAY / 7 - 0.49), col = (new Date(f.day + 'T00:00').getDay() + 6) % 7;
-        moveTop(f, owned, col * (cellW + CAL_GAP), Math.max(0, row) * (cellH + CAL_GAP));
-        rows = Math.max(rows, Math.max(0, row) + 1);
-        if (f.day.slice(0, 7) !== shownMonth()) { fadedIds.add(f.id); for (const it of owned.get(f) || []) fadedIds.add(it.id); }
-      } else moveTop(f, owned, HIDDEN_X - (hidden++) * 2000, 0);
+      if (f.day < rs || f.day > re) { moveTop(f, owned, HIDDEN_X - (hidden++) * 2000, 0); continue; }
+      const key = f.day.slice(0, 7);
+      if (!months.length || months[months.length - 1].key !== key) months.push({ key, days: [] });
+      months[months.length - 1].days.push(f);
     }
-    let y = rows * (cellH + CAL_GAP) - CAL_GAP + MONTH_GAP;
-    if (!rows) y = MONTH_GAP;
+    let y = 0;
+    for (const m of months) {
+      const [yy, mm] = m.key.split('-').map(Number);
+      const lead = (new Date(yy, mm - 1, 1).getDay() + 6) % 7;
+      const rowOf = f => Math.floor((+f.day.slice(8, 10) - 1 + lead) / 7);
+      let rows = 0;
+      for (const f of m.days) {
+        const col = (new Date(f.day + 'T00:00').getDay() + 6) % 7;
+        moveTop(f, owned, col * (cellW + CAL_GAP), y + rowOf(f) * (cellH + CAL_GAP));
+        rows = Math.max(rows, rowOf(f) + 1);
+      }
+      const h = rows * (cellH + CAL_GAP) - CAL_GAP;
+      towerMonths.push({ key: m.key, y, h });
+      y += h + MONTH_GAP;
+    }
     calRight = 7 * (cellW + CAL_GAP) - CAL_GAP; calBottom = y - MONTH_GAP;
   }
   const colX = days.length ? calRight + DIVIDER_GAP * 2 : 0;
-  let y = 0;
+  const now = towerMonths.find(m => m.key === monthKey(new Date()));
+  let y = now ? now.y : 0;
   for (const f of others) { moveTop(f, owned, colX, y); y += f.h + FRAME_GAP; }
   const bottom = Math.max(calBottom, y - FRAME_GAP);
-  return days.length ? { x: calRight + DIVIDER_GAP, y: -60, h: bottom + 120, labels } : null;
+  const colBottom = y - FRAME_GAP;
+  return days.length ? { x: calRight + DIVIDER_GAP, y: -60, h: Math.max(calBottom, colBottom) + 120, months: towerMonths.slice() } : null;
 }
 /* one section per day: from this week's Monday, always CAL_WEEKS weeks ahead */
 function ensureCalendar(items) {
   const have = new Set(items.filter(i => i.kind === 'frame' && i.day).map(i => i.day));
   const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7);
   let added = 0;
-  /* the shown month's whole weeks, neighbouring days included */
-  const [gs, ge] = monthGrid(shownMonth());
-  d.setTime(new Date(gs + 'T00:00').getTime());
-  const days = Math.round((new Date(ge + 'T00:00') - d) / DAY) + 1;
+  /* every day of the tower */
+  const [ts, te] = towerRange();
+  d.setTime(new Date(ts + 'T00:00').getTime());
+  const days = Math.round((new Date(te + 'T00:00') - d) / DAY) + 1;
   for (let k = 0; k < days; k++) {
     const iso = isoDay(d);
     if (!have.has(iso)) {
@@ -2337,26 +2354,53 @@ async function startSync() {
   } catch (e) { console.warn('synkronointi ei ole käytössä', e && (e.code || e.message)); }
 }
 
-/* ---------- month navigation ---------- */
-function showMonth(key, pickDay) {
-  if (!board) return;
-  save('kalenteri-kk', key);
-  const added = ensureCalendar(board.items);
-  if (added) for (const f of board.items.filter(i => i.kind === 'frame' && i.day && i.x < -1e5 && i.y < -1e5)) layoutFrame(f, [], [], []);
-  board.divider = arrangeItems(board.items);
+/* ---------- month navigation: the arrows glide the tower a month up or down ---------- */
+const NAV_TOP = 76;
+function towerList() { return (board && board.divider && board.divider.months) || []; }
+function monthAtTop() {
+  const list = towerList(); if (!list.length) return null;
+  const wy = (NAV_TOP - board.view.y) / board.view.z;
+  let best = list[0];
+  for (const m of list) if (Math.abs(m.y - wy) < Math.abs(best.y - wy)) best = m;
+  return best;
+}
+let glide = null;
+function glideTo(targetY) {
+  const from = board.view.y, t0 = performance.now(), dur = 280;
+  cancelAnimationFrame(glide);
+  const step = now => {
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    board.view.y = from + (targetY - from) * e; applyView();
+    if (k < 1) glide = requestAnimationFrame(step); else persistSoon();
+  };
+  glide = requestAnimationFrame(step);
+}
+function scrollToMonth(key, pickDay) {
+  const m = towerList().find(x => x.key === key); if (!m) { toast('Päivä ei ole kalenterissa'); return; }
+  glideTo(NAV_TOP - m.y * board.view.z);
   sel.clear();
   if (pickDay) { const f = board.items.find(i => i.kind === 'frame' && i.day === pickDay); if (f) sel.add(f.id); }
   render();
-  /* a month switch is this screen's view, not an edit: no undo step, no upload of the moved positions */
-  clearTimeout(saveTimer); persist(); hist = [snap()]; hi = 0; updateButtons();
-  if (typeof markSynced === 'function') markSynced();
   $('calDate').value = pickDay || key + '-01';
 }
-function stepMonth(n) { const [yy, mm] = shownMonth().split('-').map(Number); showMonth(monthKey(new Date(yy, mm - 1 + n, 1))); }
+function stepMonth(n) {
+  const list = towerList(), cur = monthAtTop(); if (!cur) return;
+  const i = clamp(list.indexOf(cur) + n, 0, list.length - 1);
+  scrollToMonth(list[i].key);
+}
+/* first look: calendar and column fill the width, this month at the top */
+function towerView() {
+  const dv = board.divider; if (!dv) { fitView(); return; }
+  const right = Math.max(...board.items.filter(i => i.kind === 'frame' && !i.parent && !i.day).map(f => f.x + f.w), dv.x);
+  const z = Math.max(1e-6, (vp.clientWidth - 80) / Math.max(1, right + 40));
+  const m = towerList().find(x => x.key === monthKey(new Date()));
+  board.view = { z, x: 40, y: NAV_TOP - (m ? m.y : 0) * z };
+  applyView(); persistSoon();
+}
 $('calPrev').onclick = () => stepMonth(-1);
 $('calNext').onclick = () => stepMonth(1);
-$('calToday').onclick = () => { const t = new Date(); showMonth(monthKey(t), isoDay(t)); };
-$('calDate').addEventListener('change', () => { const v = $('calDate').value; if (/^\d{4}-\d{2}-\d{2}$/.test(v)) showMonth(v.slice(0, 7), v); });
+$('calToday').onclick = () => { const t = new Date(); scrollToMonth(monthKey(t), isoDay(t)); };
+$('calDate').addEventListener('change', () => { const v = $('calDate').value; if (/^\d{4}-\d{2}-\d{2}$/.test(v)) scrollToMonth(v.slice(0, 7), v); });
 $('calDate').addEventListener('keydown', e => e.stopPropagation());
 
 /* ---------- lock: the board and routine live only in the encrypted file ---------- */
@@ -2414,15 +2458,13 @@ function unlock(payload) {
   } else { migrateTidy(); ensureRoutineSection(); migrateBoards(); }
   ensureLayoutMode();
   if (board) {
-    save('kalenteri-kk', monthKey(new Date()));
     $('calDate').value = isoDay(new Date());
     const added = ensureCalendar(board.items);
-    if (added || !board.divider || true) {
-      /* new day sections get their size from the grid planner, then everything is arranged */
-      for (const f of board.items.filter(i => i.kind === 'frame' && i.day && i.x < -1e5)) layoutFrame(f, [], [], []);
-      board.divider = arrangeItems(board.items);
-      render(); commit(); fitView();
-    }
+    /* new day sections get their size from the grid planner, then everything is arranged */
+    if (added) for (const f of board.items.filter(i => i.kind === 'frame' && i.day && i.x < -1e5 && i.y < -1e5)) layoutFrame(f, [], [], []);
+    board.divider = arrangeItems(board.items);
+    render(); if (added) commit(); else { clearTimeout(saveTimer); persist(); if (typeof markSynced === 'function') markSynced(); }
+    towerView();
   }
   startSync();
   const f = new URLSearchParams(location.search).get('tuo');
