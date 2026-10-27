@@ -394,7 +394,7 @@
     <tr><td>Tila</td><td>Klikkaa lapun kulman merkkiä: uusi, työn alla, valmis. </td></tr>
     <tr><td>Kuva</td><td>Liitä leikepöydältä (Ctrl + V) tai pudota kuvatiedosto taululle</td></tr>
     <tr><td>Muoto, merkintä, ✓ ✗</td><td>Valitse lappu ja avaa Lappu-valikko</td></tr>
-    <tr><td>Siirrä</td><td>Vedä lappua. Kehystä vedetään sen otsikosta, ja sen laput tulevat mukana.</td></tr>
+    <tr><td>Siirrä</td><td>Lappua voi siirtää vain muokatessa: tuplaklikkaa ja vedä. Muuten veto liikuttaa taulua. Kehystä vedetään sen otsikosta.</td></tr>
     <tr><td>Valitse monta</td><td>Shift + klikkaus, tai Shift + veto tyhjästä kohdasta</td></tr>
     <tr><td>Liiku</td><td>Vedä tyhjää kohtaa tai vedä keski- tai oikealla painikkeella, tai kaksi sormea</td></tr>
     <tr><td>Zoomaa</td><td>Rulla tai nipistys. Shift + rulla liikuttaa sivuttain.</td></tr>
@@ -1025,9 +1025,53 @@ function applyMove(d) {
   if (board.links.length) renderLinks();
 }
 
+function beginMove(id, w, shift) {
+    const was = sel.has(id);
+  if (shift) { was ? sel.delete(id) : sel.add(id); }
+  else if (!was) { sel.clear(); sel.add(id); }
+  const moving = new Map();
+  for (const id of sel) {
+    const it = find(id); if (!it) continue;
+    moving.set(it.id, it);
+    if (it.kind === 'frame') for (const c of framedContents(it)) moving.set(c.id, c);
+  }
+  const orig = new Map();
+  for (const it of moving.values()) orig.set(it.id, it.kind === 'stroke' ? it.points.map(p => p.slice()) : { x: it.x, y: it.y });
+  /* lift dragged notes to the top */
+  const ids = new Set(moving.keys());
+  const frames = board.items.filter(i => i.kind === 'frame');
+  const rest = board.items.filter(i => i.kind !== 'frame' && !ids.has(i.id));
+  const lifted = board.items.filter(i => i.kind !== 'frame' && ids.has(i.id));
+  board.items = [...frames, ...rest, ...lifted];
+  drag = { type: 'move', sx: w.x, sy: w.y, orig, moved: false, clickId: id, shift: shift, wasSel: was };
+  const movedItems = [...moving.values()];
+  drag.flow = movedItems.length > 0 && movedItems.every(i => i.kind === 'note' || i.kind === 'text');
+  if (drag.flow) {
+    drag.ids = new Set(moving.keys());
+    drag.items = movedItems.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    drag.src = new Set(movedItems.map(frameOf).filter(Boolean));
+  }
+  render();
+}
+
 /* ---------- pointer interaction ---------- */
 const pointers = new Map();
-let lastRight = { id: null, t: 0 }, clickTimer = null, clickId = null;
+let lastRight = { id: null, t: 0 }, clickTimer = null, clickId = null, editDrag = null;
+/* one click cycles the badge, a double click edits the text (owner 27.10.2026) */
+function noteClick(id, e) {
+  const it = find(id);
+  if (it && it.kind === 'note') {
+    if (clickTimer && clickId === it.id) { clearTimeout(clickTimer); clickTimer = null; startEdit(it.id, false, e.clientX, e.clientY); }
+    else {
+      clearTimeout(clickTimer); clickId = it.id;
+      clickTimer = setTimeout(() => {
+        clickTimer = null;
+        const n = find(clickId); if (!n) return;
+        const k = CYCLE.indexOf(n.status); n.status = CYCLE[(k + 1) % CYCLE.length]; render(); commit();
+      }, 260);
+    }
+  } else if (it && it.kind === 'text') startEdit(it.id, false, e.clientX, e.clientY);
+}
 let drag = null, pinch = null;
 
 function hitInfo(target) {
@@ -1053,7 +1097,12 @@ function framedContents(frame) {
 vp.addEventListener('contextmenu', e => e.preventDefault());
 
 vp.addEventListener('pointerdown', e => {
-  if (e.target.isContentEditable || e.target.tagName === 'INPUT') return;
+  if (e.target.isContentEditable) {
+    const el = e.target.closest('.item');
+    if (el && editing === el.dataset.id && e.button === 0) editDrag = { id: el.dataset.id, sx: e.clientX, sy: e.clientY, pid: e.pointerId };
+    return;
+  }
+  if (e.target.tagName === 'INPUT') return;
   /* a drag must never start a text selection */
   e.preventDefault();
   const ss = getSelection(); if (ss && ss.rangeCount && !editing) ss.removeAllRanges();
@@ -1104,32 +1153,15 @@ vp.addEventListener('pointerdown', e => {
     if (it && (it.kind === 'note' || it.kind === 'text' || it.kind === 'image')) { drag = { type: 'link', from: h.id, moved: false, target: null }; return; }
   }
   if (h.type === 'item' && tool !== 'pen') {
-    const was = sel.has(h.id);
-    if (e.shiftKey) { was ? sel.delete(h.id) : sel.add(h.id); }
-    else if (!was) { sel.clear(); sel.add(h.id); }
-    const moving = new Map();
-    for (const id of sel) {
-      const it = find(id); if (!it) continue;
-      moving.set(it.id, it);
-      if (it.kind === 'frame') for (const c of framedContents(it)) moving.set(c.id, c);
+    const it = find(h.id);
+    const locked = it && (it.kind === 'note' || it.kind === 'text' || it.kind === 'image') && editing !== h.id;
+    if (locked) {
+      /* not being edited: the note stays put, a drag pans the board, a click still works */
+      drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, clickItem: h.id, shift: e.shiftKey };
+      vp.classList.add('panning'); return;
     }
-    const orig = new Map();
-    for (const it of moving.values()) orig.set(it.id, it.kind === 'stroke' ? it.points.map(p => p.slice()) : { x: it.x, y: it.y });
-    /* lift dragged notes to the top */
-    const ids = new Set(moving.keys());
-    const frames = board.items.filter(i => i.kind === 'frame');
-    const rest = board.items.filter(i => i.kind !== 'frame' && !ids.has(i.id));
-    const lifted = board.items.filter(i => i.kind !== 'frame' && ids.has(i.id));
-    board.items = [...frames, ...rest, ...lifted];
-    drag = { type: 'move', sx: w.x, sy: w.y, orig, moved: false, clickId: h.id, shift: e.shiftKey, wasSel: was };
-    const movedItems = [...moving.values()];
-    drag.flow = movedItems.length > 0 && movedItems.every(i => i.kind === 'note' || i.kind === 'text');
-    if (drag.flow) {
-      drag.ids = new Set(moving.keys());
-      drag.items = movedItems.sort((a, b) => (a.y - b.y) || (a.x - b.x));
-      drag.src = new Set(movedItems.map(frameOf).filter(Boolean));
-    }
-    render(); return;
+    beginMove(h.id, w, e.shiftKey);
+    return;
   }
   /* background */
   if (tool === 'pen') {
@@ -1143,6 +1175,20 @@ vp.addEventListener('pointerdown', e => {
   drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, clear: true };
   vp.classList.add('panning');
 });
+
+document.addEventListener('pointermove', e => {
+  if (!editDrag || e.pointerId !== editDrag.pid) return;
+  if (Math.hypot(e.clientX - editDrag.sx, e.clientY - editDrag.sy) < 6) return;
+  const id = editDrag.id, start = toWorld(editDrag.sx, editDrag.sy);
+  editDrag = null;
+  getSelection().removeAllRanges();
+  if (document.activeElement) document.activeElement.blur();   /* saves the text */
+  if (editing) { const ed = els.get(editing), t = ed && ed.querySelector('[contenteditable=true]'); if (t) t.dispatchEvent(new FocusEvent('blur')); }
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  try { vp.setPointerCapture(e.pointerId); } catch { }
+  beginMove(id, start, false);
+}, true);
+document.addEventListener('pointerup', () => { editDrag = null; }, true);
 
 vp.addEventListener('pointermove', e => {
   if (!pointers.has(e.pointerId)) return;
@@ -1219,6 +1265,11 @@ function endPointer(e) {
   const d = drag; drag = null;
   vp.classList.remove('panning');
   if (d.type === 'pan') {
+    if (!d.moved && d.clickItem) {
+      if (d.shift) { sel.has(d.clickItem) ? sel.delete(d.clickItem) : sel.add(d.clickItem); render(); return; }
+      sel.clear(); sel.add(d.clickItem); render();
+      noteClick(d.clickItem, e); return;
+    }
     if (!d.moved && d.mid) {
       const w = toWorld(e.clientX, e.clientY), f = frameAt(w.x, w.y);
       if (f) {
@@ -1266,19 +1317,7 @@ function endPointer(e) {
     }
     if (!d.shift) {
       sel.clear(); sel.add(d.clickId); render();
-      const it = find(d.clickId);
-      /* one click cycles the badge, a double click edits the text (owner 27.10.2026) */
-      if (it && it.kind === 'note') {
-        if (clickTimer && clickId === it.id) { clearTimeout(clickTimer); clickTimer = null; startEdit(it.id, false, e.clientX, e.clientY); }
-        else {
-          clearTimeout(clickTimer); clickId = it.id;
-          clickTimer = setTimeout(() => {
-            clickTimer = null;
-            const n = find(clickId); if (!n) return;
-            const k = CYCLE.indexOf(n.status); n.status = CYCLE[(k + 1) % CYCLE.length]; render(); commit();
-          }, 260);
-        }
-      } else if (it && it.kind === 'text') startEdit(it.id, false, e.clientX, e.clientY);
+      noteClick(d.clickId, e);
     }
     return;
   }
