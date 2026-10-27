@@ -386,7 +386,8 @@
   <h2>Ideataulu</h2>
   <table>
     <tr><td>Uusi lappu</td><td>Keskiklikkaa tyhjää kohtaa, tuplaklikkaa tai paina N</td></tr>
-    <tr><td>Muokkaa tekstiä</td><td>Klikkaa lappua. Enter tallentaa, Shift + Enter tekee uuden rivin.</td></tr>
+    <tr><td>Tila</td><td>Klikkaa lappua: uusi, työn alla, valmis.</td></tr>
+    <tr><td>Muokkaa tekstiä</td><td>Tuplaklikkaa lappua. Enter tallentaa, Shift + Enter tekee uuden rivin.</td></tr>
     <tr><td>Määräaika</td><td>Lapun yläreunan laatikko näyttää juoksevan ajan määräaikaan. Klikkaa sitä antaaksesi päivän ja kellonajan. Uudella lapulla kuukauden päästä. Lappu on vihreä kun aikaa on kuukausi tai enemmän, sitten keltainen, oranssi ja määräpäivänä punainen. Klikkaa laatikkoa muokataksesi.</td></tr>
     <tr><td>Tila</td><td>Klikkaa lapun kulman merkkiä: uusi, työn alla, valmis. </td></tr>
     <tr><td>Kuva</td><td>Liitä leikepöydältä (Ctrl + V) tai pudota kuvatiedosto taululle</td></tr>
@@ -452,19 +453,23 @@ function batteryColor(t) {
 }
 /* routine notes follow the clock: the step to do now is coral, upcoming ones go green -> yellow -> orange
    over the two hours before they start, finished ones fade */
-const ROUTINE_WINDOW = 120, ROUTINE_PAST = '#cfc9b8';
+const ROUTINE_WINDOW = 120, ROUTINE_PAST = '#cfc9b8', NEW_STEP_MIN = 5;
+function noteMin(it) {
+  if (it.min != null) return it.min;
+  const r = typeof ROUTINE !== 'undefined' && typeof it.routine === 'number' && ROUTINE[it.routine - 1];
+  return r ? r.min : NEW_STEP_MIN;
+}
 function routineColor(it) {
-  const r = typeof ROUTINE !== 'undefined' && ROUTINE[it.routine - 1];
   const m = (it.tag || '').match(/^(\d{1,2}):(\d{2})$/);
-  if (!r || !m) return null;
-  const start = +m[1] * 60 + +m[2], end = start + (r.min || 0);
+  if (!m) return null;
+  const start = +m[1] * 60 + +m[2], end = start + noteMin(it);
   const d = new Date(), now = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
   if (now >= start && now < end) return batteryColor(0);
   if (now < start) return batteryColor(clamp((start - now) / ROUTINE_WINDOW, 0, 1));
   return ROUTINE_PAST;
 }
 function noteColor(it) {
-  if (it.routine) { const c = routineColor(it); if (c) return c; }
+  if (it.routine || it.inRoutine) { const c = routineColor(it); if (c) return c; }
   const due = noteDue(it);
   if (due === null) return it.color;
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -939,6 +944,19 @@ function layoutFrame(f, slots, images, pins) {
   });
   for (const p of pins) { p.n.x = Math.round(p.im.x + p.rx * p.im.w); p.n.y = Math.round(p.im.y + p.ry * p.im.h); p.n.w = Math.round(p.rw * p.im.w); p.n.h = Math.round(p.rh * p.im.h); }
   f.w = plan.W; f.h = plan.H;
+  if (f.routine) {
+    /* schedule: start time + each step's length, in grid order (owner 27.10.2026) */
+    const [h0, m0] = (load('rutiini-aloitus', '07:00') || '07:00').split(':').map(Number);
+    let t = h0 * 60 + m0;
+    for (const n of slots) {
+      if (!n || n.kind !== 'note') continue;
+      n.inRoutine = true;
+      if (typeof n.routine !== 'number' && n.min == null) n.min = NEW_STEP_MIN;
+      n.due = null; n.tag = fmtClock(t); t += noteMin(n);
+    }
+  } else {
+    for (const n of slots) if (n && n.inRoutine && typeof n.routine !== 'number') { n.inRoutine = false; n.tag = null; }
+  }
 }
 /* a parent holds its sections side by side and is itself 16:9 */
 const SECTION_GAP = 40;
@@ -1004,7 +1022,7 @@ function applyMove(d) {
 
 /* ---------- pointer interaction ---------- */
 const pointers = new Map();
-let lastRight = { id: null, t: 0 };
+let lastRight = { id: null, t: 0 }, clickTimer = null, clickId = null;
 let drag = null, pinch = null;
 
 function hitInfo(target) {
@@ -1244,7 +1262,18 @@ function endPointer(e) {
     if (!d.shift) {
       sel.clear(); sel.add(d.clickId); render();
       const it = find(d.clickId);
-      if (it && (it.kind === 'note' || it.kind === 'text')) startEdit(it.id, false, e.clientX, e.clientY);
+      /* one click cycles the badge, a double click edits the text (owner 27.10.2026) */
+      if (it && it.kind === 'note') {
+        if (clickTimer && clickId === it.id) { clearTimeout(clickTimer); clickTimer = null; startEdit(it.id, false, e.clientX, e.clientY); }
+        else {
+          clearTimeout(clickTimer); clickId = it.id;
+          clickTimer = setTimeout(() => {
+            clickTimer = null;
+            const n = find(clickId); if (!n) return;
+            const k = CYCLE.indexOf(n.status); n.status = CYCLE[(k + 1) % CYCLE.length]; render(); commit();
+          }, 260);
+        }
+      } else if (it && it.kind === 'text') startEdit(it.id, false, e.clientX, e.clientY);
     }
     return;
   }
@@ -1282,6 +1311,7 @@ vp.addEventListener('dblclick', e => {
     const it = find(h.id);
     if (!it || it.kind === 'stroke') return;
     if (it.kind === 'frame') { if (under.closest('.ftitle')) startEdit(it.id, true); return; }
+    if (it.kind === 'note') return;
     startEdit(it.id); return;
   }
   if (h.type === 'bg' && tool === 'select') { const w = toWorld(e.clientX, e.clientY); addNote(w.x, w.y); }
@@ -1747,7 +1777,7 @@ function routineSectionItems(items, routine, pos) {
   const W = PAD * 2 + COLS * CELL + (COLS - 1) * GAP, rows = Math.ceil(routine.length / COLS);
   const b = allBounds(items.filter(i => i.kind !== 'stroke'));
   const x0 = pos ? pos.x : b ? Math.round(b.x + b.w + 200) : 0, y0 = pos ? pos.y : b ? Math.round(b.y) : 0;
-  items.unshift({ id: uid(), kind: 'frame', routine: true, x: x0, y: y0, w: W, h: TITLE + rows * (CELL + GAP) - GAP + PAD, title: 'Päivärutiini', color: '#ffffff' });
+  items.unshift({ id: uid(), kind: 'frame', routine: true, routineLen: routine.length, x: x0, y: y0, w: W, h: TITLE + rows * (CELL + GAP) - GAP + PAD, title: 'Päivärutiini', color: '#ffffff' });
   const [h, mm] = (load('rutiini-aloitus', '07:00') || '07:00').split(':').map(Number);
   let t = h * 60 + mm;
   const made = [];
@@ -1798,6 +1828,11 @@ function migrateBoards() {
     save('jarjestely-v2', true);
   }
   /* every frame 16:9 (owner 26.10.2026): lay boards out once with the new planner */
+  if (!load('rutiini-aikataulu-v1', false) && board) {
+    const rf = board.items.find(i => i.kind === 'frame' && i.routine);
+    if (rf) { reflowFrame(rf); render(); commit(); }
+    save('rutiini-aikataulu-v1', true);
+  }
   if (!load('kuvasuhde-v3', false)) {
     for (const e of index) {
       const b = board && board.id === e.id ? board : load('ideataulu-' + e.id, null);
@@ -1839,9 +1874,10 @@ function ensureRoutineSection() {
 function syncRoutineSection(items, routine) {
   const f = items.find(i => i.kind === 'frame' && i.routine);
   if (!f || !routine.length) return false;
-  const notes = items.filter(i => i.kind === 'note' && i.routine);
-  if (notes.length === routine.length) return false;
-  const pos = { x: f.x, y: f.y }, drop = new Set([f, ...notes]);
+  const notes = items.filter(i => i.kind === 'note' && typeof i.routine === 'number');
+  if (f.routineLen === routine.length) return false;
+  if (f.routineLen == null && notes.length === routine.length) { f.routineLen = routine.length; return false; }
+  const pos = { x: f.x, y: f.y }, drop = new Set([f, ...items.filter(i => i.kind === 'note' && i.routine)]);
   const keep = items.filter(i => !drop.has(i));
   items.length = 0; items.push(...keep);
   routineSectionItems(items, routine, pos);
