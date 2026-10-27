@@ -529,6 +529,8 @@ function openBoard(id) {
   b.links = Array.isArray(b.links) ? b.links : [];
   b.view = b.view || { x: 0, y: 0, z: 1 };
   for (const it of b.items) if (it.kind === 'note' && !it.tag && !it.created) it.created = Date.now();
+  /* every note is square (owner 27.10.2026) */
+  for (const it of b.items) if (it.kind === 'note' && it.shape && it.shape !== 'square') it.shape = 'square';
   /* no red anywhere (owner 24.10.2026): coral #FF8559 instead */
   for (const it of b.items) if (it.color && /^#d9705e$/i.test(it.color)) it.color = '#FF8559';
   /* routine notes no longer show the step length */
@@ -972,7 +974,38 @@ function sizeParent(par, kids) {
   fit169(par);
 }
 /* plans: Map(frame -> {slots, images, pins}) worked out BEFORE anything moved; sections not in the map keep their contents */
+const FRAME_GAP = 90;
+function topOf(f) { let t = f; while (t && t.parent) { const p = find(t.parent); if (!p) break; t = p; } return t; }
 function applyPlans(plans, exclude) {
+  /* 1. before anything moves: which top-level frame owns which items */
+  const tops = board.items.filter(i => i.kind === 'frame' && !i.parent).sort((a, b) => a.x - b.x);
+  const planned = new Set();
+  for (const [, pl] of plans) { for (const n of pl.slots) if (n) planned.add(n); for (const im of pl.images) planned.add(im); for (const q of pl.pins) planned.add(q.n); }
+  const owned = new Map(tops.map(t => [t, new Set()]));
+  for (const it of board.items) {
+    if (it.kind === 'frame' && !it.parent) continue;
+    if ((exclude && exclude.has(it.id)) || planned.has(it)) continue;
+    const c = ctr(it);
+    const t = tops.find(f => c.x > f.x && c.x < f.x + f.w && c.y > f.y && c.y < f.y + f.h);
+    if (t) owned.get(t).add(it);
+  }
+  for (const [f, pl] of plans) {
+    const t = topOf(f), set = owned.get(t); if (!set) continue;
+    for (const n of pl.slots) if (n) set.add(n); for (const im of pl.images) set.add(im); for (const q of pl.pins) set.add(q.n);
+  }
+  layoutPlans(plans, exclude);
+  /* 2. pack the row: each frame starts right after the previous one */
+  let x = tops.length ? tops[0].x : 0;
+  for (const f of tops) {
+    const dx = x - f.x;
+    if (dx) {
+      f.x += dx;
+      for (const it of owned.get(f)) { if (it.kind === 'stroke') it.points = it.points.map(q => [q[0] + dx, q[1]]); else it.x += dx; }
+    }
+    x = f.x + f.w + FRAME_GAP;
+  }
+}
+function layoutPlans(plans, exclude) {
   const parents = new Set();
   for (const [f, pl] of plans) { if (f.parent) parents.add(f.parent); else layoutFrame(f, pl.slots, pl.images, pl.pins); }
   for (const pid of parents) {
@@ -1880,6 +1913,11 @@ function migrateBoards() {
     save('jarjestely-v2', true);
   }
   /* every frame 16:9 (owner 26.10.2026): lay boards out once with the new planner */
+  if (!load('rivi-pakattu-v1', false) && board) {
+    const f0 = board.items.find(i => i.kind === 'frame' && !i.parent);
+    if (f0) { applyPlans(new Map()); render(); commit(); }
+    save('rivi-pakattu-v1', true);
+  }
   if (!load('rutiini-aikataulu-v1', false) && board) {
     const rf = board.items.find(i => i.kind === 'frame' && i.routine);
     if (rf) { reflowFrame(rf); render(); commit(); }
@@ -1986,6 +2024,7 @@ function tidyItems(items, assign) {
   const CELL = 170, GAP = 26, PAD = 30, TITLE = 76, COLS = 4, FGAP = 90, PER_ROW = 3;
   const FW = PAD * 2 + COLS * CELL + (COLS - 1) * GAP;
   for (const it of items) if (it.kind === 'note' && it.status === 'cancel') it.status = 'new';
+  for (const it of items) if (it.kind === 'note') it.shape = 'square';
   const frames = items.filter(i => i.kind === 'frame').sort((a, b) => (a.y - b.y) || (a.x - b.x));
   const content = items.filter(i => i.kind === 'note' || i.kind === 'text' || i.kind === 'image');
   const inside = (it, f) => { const b = bounds(it), cx = b.x + b.w / 2, cy = b.y + b.h / 2; return cx > f.x && cx < f.x + f.w && cy > f.y && cy < f.y + f.h; };
@@ -2040,7 +2079,7 @@ function tidyItems(items, assign) {
       const [n, im] = split(groups.get(f));
       layoutFrame(f, n, im, []);
     }
-    rowMax = Math.max(rowMax, f.h); x += f.w + FGAP;
+    rowMax = Math.max(rowMax, f.h); x += f.w + FRAME_GAP;
   }
   if (loose.length) {
     const ly = frames.length ? y + rowMax + FGAP * 1.5 : 0;
