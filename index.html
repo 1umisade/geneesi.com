@@ -59,6 +59,9 @@
     pointer-events: none;
   }
   .frame.sel { border-color: var(--sel); box-shadow: 0 0 0 2px var(--sel); }
+  .frame.today { border-color: #FF8559; box-shadow: 0 0 0 4px #FF8559; }
+  .frame.pastday { opacity: .55; }
+  #divider { position: absolute; width: 6px; border-radius: 3px; background: rgba(243, 233, 210, .35); pointer-events: none; display: none; }
   .ftitle {
     position: absolute; left: 0; top: 0; right: 0; padding: 10px 16px; min-height: 44px;
     font-weight: 600; font-size: 34px; color: var(--note-ink); cursor: move; pointer-events: auto;
@@ -112,6 +115,8 @@
   }
   .del:hover { background: #d9473a; color: #fff; border-color: #d9473a; }
   .item:hover .del, .item.sel .del { opacity: 1; }
+  /* removed (owner 27.10.2026): double right-click deletes */
+  .del { display: none !important; }
   @media (hover: none) { .item.sel .del { opacity: 1; } }
   .status:hover { transform: scale(1.12); }
   .imgitem img { width: 100%; height: 100%; display: block; object-fit: cover; border-radius: 3px; box-shadow: 0 4px 12px rgba(0,0,0,.25); pointer-events: none; user-select: none; }
@@ -277,7 +282,7 @@
 </div>
 <div id="viewport">
   <div id="world">
-    <div class="layer" id="frameLayer"></div>
+    <div class="layer" id="frameLayer"><div id="divider"></div></div>
     <svg class="layer" id="linkSvg" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -604,6 +609,7 @@ function viewCenter() { return toWorld(vp.clientWidth / 2, vp.clientHeight / 2);
 const els = new Map();
 let lastOrder = '';
 function clearDom() { els.forEach(e => e.remove()); els.clear(); lastOrder = ''; }
+const isoDay = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
 function makeEl(it) {
   let e;
@@ -653,6 +659,8 @@ function updateEl(e, it) {
   if (it.kind === 'frame') {
     Object.assign(e.style, { left: it.x + 'px', top: it.y + 'px', width: it.w + 'px', height: it.h + 'px', background: hexA(it.color, .35) });
     e.classList.toggle('sel', s);
+    e.classList.toggle('today', !!it.day && it.day === isoDay(new Date()));
+    e.classList.toggle('pastday', !!it.day && it.day < isoDay(new Date()));
     const t = e.querySelector('.ftitle');
     if (!t.isContentEditable && t.textContent !== it.title) t.textContent = it.title;
     return;
@@ -734,8 +742,11 @@ function render() {
   for (const [id, e] of els) if (!seen.has(id)) { e.remove(); els.delete(id); }
   /* keep DOM order = array order so later items draw on top */
   const order = board.items.map(i => i.id).join(',');
-  if (order !== lastOrder) { for (const it of board.items) { const e = els.get(it.id); e.parentNode.append(e); } lastOrder = order; }
+  if (order !== lastOrder) { for (const it of board.items) { const e = els.get(it.id); e.parentNode.append(e); } lastOrder = order; $('frameLayer').prepend($('divider')); }
   renderLinks();
+  const dv = $('divider');
+  if (board.divider) Object.assign(dv.style, { display: 'block', left: board.divider.x - 3 + 'px', top: board.divider.y + 'px', height: board.divider.h + 'px' });
+  else dv.style.display = 'none';
   applyView();
   updateButtons();
 }
@@ -981,29 +992,74 @@ function applyPlans(plans, exclude) {
   const tops = board.items.filter(i => i.kind === 'frame' && !i.parent).sort((a, b) => a.x - b.x);
   const planned = new Set();
   for (const [, pl] of plans) { for (const n of pl.slots) if (n) planned.add(n); for (const im of pl.images) planned.add(im); for (const q of pl.pins) planned.add(q.n); }
-  const owned = new Map(tops.map(t => [t, new Set()]));
-  for (const it of board.items) {
-    if (it.kind === 'frame' && !it.parent) continue;
-    if ((exclude && exclude.has(it.id)) || planned.has(it)) continue;
-    const c = ctr(it);
-    const t = tops.find(f => c.x > f.x && c.x < f.x + f.w && c.y > f.y && c.y < f.y + f.h);
-    if (t) owned.get(t).add(it);
-  }
+  const owned = ownedBy(tops, board.items, it => (exclude && exclude.has(it.id)) || planned.has(it));
   for (const [f, pl] of plans) {
     const t = topOf(f), set = owned.get(t); if (!set) continue;
     for (const n of pl.slots) if (n) set.add(n); for (const im of pl.images) set.add(im); for (const q of pl.pins) set.add(q.n);
   }
   layoutPlans(plans, exclude);
-  /* 2. pack the row: each frame starts right after the previous one */
-  let x = tops.length ? tops[0].x : 0;
-  for (const f of tops) {
-    const dx = x - f.x;
-    if (dx) {
-      f.x += dx;
-      for (const it of owned.get(f)) { if (it.kind === 'stroke') it.points = it.points.map(q => [q[0] + dx, q[1]]); else it.x += dx; }
-    }
-    x = f.x + f.w + FRAME_GAP;
+  /* 2. calendar on the left, the other sections in a column on the right */
+  board.divider = arrangeTops(tops, owned);
+}
+const CAL_GAP = 40, DIVIDER_GAP = 160, CAL_WEEKS = 5;
+const WEEKDAYS = ['su', 'ma', 'ti', 'ke', 'to', 'pe', 'la'];
+function ownedBy(tops, items, skip) {
+  const owned = new Map(tops.map(t => [t, new Set()]));
+  for (const it of items) {
+    if (it.kind === 'frame' && !it.parent) continue;
+    if (skip && skip(it)) continue;
+    const c = ctr(it);
+    const t = tops.find(f => c.x > f.x && c.x < f.x + f.w && c.y > f.y && c.y < f.y + f.h);
+    if (t) owned.get(t).add(it);
   }
+  return owned;
+}
+function moveTop(f, owned, x, y) {
+  const dx = x - f.x, dy = y - f.y;
+  if (!dx && !dy) return;
+  f.x = x; f.y = y;
+  for (const it of owned.get(f) || []) { if (it.kind === 'stroke') it.points = it.points.map(q => [q[0] + dx, q[1] + dy]); else { it.x += dx; it.y += dy; } }
+}
+/* returns the divider line */
+function arrangeTops(tops, owned) {
+  const days = tops.filter(f => f.day).sort((a, b) => (a.day < b.day ? -1 : 1));
+  const others = tops.filter(f => !f.day).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  let calRight = 0, calBottom = 0;
+  if (days.length) {
+    const monday = iso => { const d = new Date(iso + 'T00:00'); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d; };
+    const first = monday(days[0].day).getTime();
+    const cellW = Math.max(...days.map(f => f.w));
+    const pos = days.map(f => { const d = new Date(f.day + 'T00:00'); return { f, row: Math.round((monday(f.day).getTime() - first) / (7 * DAY)), col: (d.getDay() + 6) % 7 }; });
+    const rows = Math.max(...pos.map(p => p.row)) + 1;
+    const rowH = Array(rows).fill(0); for (const p of pos) rowH[p.row] = Math.max(rowH[p.row], p.f.h);
+    const rowY = []; let y = 0; for (let r = 0; r < rows; r++) { rowY.push(y); y += rowH[r] + CAL_GAP; }
+    for (const p of pos) moveTop(p.f, owned, p.col * (cellW + CAL_GAP), rowY[p.row]);
+    calRight = 7 * (cellW + CAL_GAP) - CAL_GAP; calBottom = y - CAL_GAP;
+  }
+  const colX = days.length ? calRight + DIVIDER_GAP * 2 : 0;
+  let y = 0;
+  for (const f of others) { moveTop(f, owned, colX, y); y += f.h + FRAME_GAP; }
+  const bottom = Math.max(calBottom, y - FRAME_GAP);
+  return days.length ? { x: calRight + DIVIDER_GAP, y: -60, h: bottom + 120 } : null;
+}
+/* one section per day: from this week's Monday, always CAL_WEEKS weeks ahead */
+function ensureCalendar(items) {
+  const have = new Set(items.filter(i => i.kind === 'frame' && i.day).map(i => i.day));
+  const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+  let added = 0;
+  for (let k = 0; k < CAL_WEEKS * 7; k++) {
+    const iso = isoDay(d);
+    if (!have.has(iso)) {
+      items.unshift({ id: uid(), kind: 'frame', day: iso, title: WEEKDAYS[d.getDay()] + ' ' + d.getDate() + '.' + (d.getMonth() + 1) + '.', color: '#ffffff', x: -1e6 + k * 2000, y: -1e6, w: 560, h: 265 });
+      added++;
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return added;
+}
+function arrangeItems(items) {
+  const tops = items.filter(i => i.kind === 'frame' && !i.parent);
+  return arrangeTops(tops, ownedBy(tops, items));
 }
 function layoutPlans(plans, exclude) {
   const parents = new Set();
@@ -2087,6 +2143,9 @@ function tidyItems(items, assign) {
   }
   /* keep each pinned note exactly where it sat on its screenshot */
   for (const [n, p] of pinned) { const im = p.im; n.x = Math.round(im.x + p.rx * im.w); n.y = Math.round(im.y + p.ry * im.h); n.w = Math.round(p.rw * im.w); n.h = Math.round(p.rh * im.h); }
+  /* calendar left, sections right */
+  const divider = arrangeItems(items);
+  if (typeof board !== 'undefined' && board && board.items === items) board.divider = divider;
   /* parents under their sections */
   const fr = items.filter(i => i.kind === 'frame'), others = items.filter(i => i.kind !== 'frame');
   items.length = 0; items.push(...fr.filter(f => !f.parent), ...fr.filter(f => f.parent), ...others);
@@ -2246,6 +2305,15 @@ function unlock(payload) {
     importJson(new File([JSON.stringify(payload.board)], 'oletustaulu.json'));
   } else { migrateTidy(); ensureRoutineSection(); migrateBoards(); }
   ensureLayoutMode();
+  if (board) {
+    const added = ensureCalendar(board.items);
+    if (added || !board.divider) {
+      /* new day sections get their size from the grid planner, then everything is arranged */
+      for (const f of board.items.filter(i => i.kind === 'frame' && i.day && i.x < -1e5)) layoutFrame(f, [], [], []);
+      board.divider = arrangeItems(board.items);
+      render(); commit(); fitView();
+    }
+  }
   startSync();
   const f = new URLSearchParams(location.search).get('tuo');
   if (f && /^[\w.-]+\.json$/.test(f)) {
