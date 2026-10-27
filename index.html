@@ -61,6 +61,7 @@
   .frame.sel { border-color: var(--sel); box-shadow: 0 0 0 2px var(--sel); }
   .frame.today { border-color: #FF8559; box-shadow: 0 0 0 4px #FF8559; }
   .frame.pastday { opacity: .55; }
+  .faded { opacity: .5 !important; }
   .monthlabel { position: absolute; font-size: 64px; font-weight: 600; color: rgba(243, 233, 210, .75); white-space: nowrap; pointer-events: none; text-transform: capitalize; }
   #divider { position: absolute; width: 6px; border-radius: 3px; background: rgba(243, 233, 210, .35); pointer-events: none; display: none; }
   .ftitle {
@@ -264,6 +265,17 @@
   #top, #routine, #zoom { display: none !important; }
   body.rt-open #viewport { right: 0; }
   body.rt-open #zoom { right: 16px; }
+  #calnav {
+    position: fixed; z-index: 12; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+    background: rgba(38, 33, 28, .85); border: 1px solid var(--line); border-radius: 999px; padding: 6px 8px;
+  }
+  #calnav button {
+    font: inherit; font-weight: 600; color: #f3e9d2; background: transparent; border: 1px solid rgba(243,233,210,.35);
+    border-radius: 999px; padding: 4px 14px; cursor: pointer; font-size: 15px;
+  }
+  #calnav button:hover { background: rgba(243,233,210,.12); }
+  #calnav #calPrev, #calnav #calNext { font-size: 20px; line-height: 1; padding: 4px 12px; }
+  #calnav input { font: inherit; color: #f3e9d2; background: transparent; border: 1px solid rgba(243,233,210,.35); border-radius: 999px; padding: 4px 12px; color-scheme: dark; }
   #lock { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; }
   #lockForm { width: 100%; max-width: 320px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 24px; display: grid; gap: 12px; }
   #lockForm h1 { margin: 0 0 4px; font-size: 24px; font-weight: 600; }
@@ -302,6 +314,12 @@
   </div>
 </div>
 <div id="box"></div>
+<div id="calnav">
+  <button type="button" id="calPrev" title="Edellinen kuukausi" aria-label="Edellinen kuukausi">‹</button>
+  <input type="date" id="calDate" aria-label="Siirry päivään">
+  <button type="button" id="calNext" title="Seuraava kuukausi" aria-label="Seuraava kuukausi">›</button>
+  <button type="button" id="calToday">Tänään</button>
+</div>
 
 <div class="bar" id="top">
   <button class="tb" id="boardsBtn" title="Taulut">☰</button>
@@ -664,6 +682,7 @@ function updateEl(e, it) {
     e.classList.toggle('sel', s);
     e.classList.toggle('today', !!it.day && it.day === isoDay(new Date()));
     e.classList.toggle('pastday', !!it.day && it.day < isoDay(new Date()));
+    e.classList.toggle('faded', fadedIds.has(it.id));
     const t = e.querySelector('.ftitle');
     if (!t.isContentEditable && t.textContent !== it.title) t.textContent = it.title;
     return;
@@ -677,6 +696,7 @@ function updateEl(e, it) {
   }
   Object.assign(e.style, { left: it.x + 'px', top: it.y + 'px', width: it.w + 'px', height: it.h + 'px' });
   e.style.transform = it.rot ? `rotate(${it.rot}deg)` : '';
+  e.classList.toggle('faded', fadedIds.has(it.id));
   e.style.setProperty('--s', Math.min(1, Math.max(0.05, Math.min(it.w, it.h) / 170)).toFixed(3));
   e.classList.toggle('sel', s);
   if (it.kind === 'image') {
@@ -1039,29 +1059,42 @@ function moveTop(f, owned, x, y) {
   for (const it of owned.get(f) || []) { if (it.kind === 'stroke') it.points = it.points.map(q => [q[0] + dx, q[1] + dy]); else { it.x += dx; it.y += dy; } }
 }
 /* returns the divider line */
+const HIDDEN_X = -2e6;
+const fadedIds = new Set();
+/* first and last day shown for a month: whole weeks, Monday to Sunday */
+function monthGrid(key) {
+  const [yy, mm] = key.split('-').map(Number);
+  const a = new Date(yy, mm - 1, 1); a.setDate(a.getDate() - (a.getDay() + 6) % 7);
+  const b = new Date(yy, mm, 0); b.setDate(b.getDate() + (7 - b.getDay()) % 7);
+  return [isoDay(a), isoDay(b)];
+}
+const monthKey = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+function shownMonth() { return load('kalenteri-kk', null) || monthKey(new Date()); }
 function arrangeTops(tops, owned) {
   const days = tops.filter(f => f.day).sort((a, b) => (a.day < b.day ? -1 : 1));
   const others = tops.filter(f => !f.day).sort((a, b) => (a.y - b.y) || (a.x - b.x));
   let calRight = 0, calBottom = 0;
   const labels = [];
   if (days.length) {
-    /* each month is its own block with a title and extra space above (owner 27.10.2026) */
+    /* one month at a time (owner 27.10.2026): full weeks from the Monday before the 1st to the Sunday after the last day;
+       the neighbouring months' days in those rows are shown at 50 % (faded); every other day waits far away */
     const cellW = Math.max(...days.map(f => f.w)), cellH = Math.max(...days.map(f => f.h));
-    const months = [];
-    for (const f of days) { const key = f.day.slice(0, 7); if (!months.length || months[months.length - 1].key !== key) months.push({ key, days: [] }); months[months.length - 1].days.push(f); }
-    let y = 0;
-    for (const m of months) {
-      const [yy, mm] = m.key.split('-').map(Number);
-      /* no month names or years (owner 27.10.2026): the space between months is the break */
-      const lead = (new Date(yy, mm - 1, 1).getDay() + 6) % 7;
-      const rowOf = f => Math.floor((+f.day.slice(8, 10) - 1 + lead) / 7);
-      const rowsUsed = [...new Set(m.days.map(rowOf))].sort((p, q) => p - q);
-      for (const f of m.days) {
-        const r = rowsUsed.indexOf(rowOf(f)), col = (new Date(f.day + 'T00:00').getDay() + 6) % 7;
-        moveTop(f, owned, col * (cellW + CAL_GAP), y + r * (cellH + CAL_GAP));
-      }
-      y += rowsUsed.length * (cellH + CAL_GAP) - CAL_GAP + MONTH_GAP;
+    const [gs, ge] = monthGrid(shownMonth());
+    const inGrid = f => f.day >= gs && f.day <= ge;
+    const start = new Date(gs + 'T00:00').getTime();
+    fadedIds.clear();
+    let hidden = 0, rows = 0;
+    for (const f of days) {
+      if (inGrid(f)) {
+        const t = new Date(f.day + 'T00:00').getTime();
+        const row = Math.round((t - start) / DAY / 7 - 0.49), col = (new Date(f.day + 'T00:00').getDay() + 6) % 7;
+        moveTop(f, owned, col * (cellW + CAL_GAP), Math.max(0, row) * (cellH + CAL_GAP));
+        rows = Math.max(rows, Math.max(0, row) + 1);
+        if (f.day.slice(0, 7) !== shownMonth()) { fadedIds.add(f.id); for (const it of owned.get(f) || []) fadedIds.add(it.id); }
+      } else moveTop(f, owned, HIDDEN_X - (hidden++) * 2000, 0);
     }
+    let y = rows * (cellH + CAL_GAP) - CAL_GAP + MONTH_GAP;
+    if (!rows) y = MONTH_GAP;
     calRight = 7 * (cellW + CAL_GAP) - CAL_GAP; calBottom = y - MONTH_GAP;
   }
   const colX = days.length ? calRight + DIVIDER_GAP * 2 : 0;
@@ -1075,9 +1108,10 @@ function ensureCalendar(items) {
   const have = new Set(items.filter(i => i.kind === 'frame' && i.day).map(i => i.day));
   const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7);
   let added = 0;
-  /* three months: from this week's Monday to the end of the month after next (owner 27.10.2026) */
-  const end = new Date(); end.setHours(0, 0, 0, 0); end.setMonth(end.getMonth() + 3, 0);
-  const days = Math.round((end - d) / DAY) + 1;
+  /* the shown month's whole weeks, neighbouring days included */
+  const [gs, ge] = monthGrid(shownMonth());
+  d.setTime(new Date(gs + 'T00:00').getTime());
+  const days = Math.round((new Date(ge + 'T00:00') - d) / DAY) + 1;
   for (let k = 0; k < days; k++) {
     const iso = isoDay(d);
     if (!have.has(iso)) {
@@ -1502,7 +1536,7 @@ function vote(id, d) {
 }
 
 function fitView() {
-  const b = allBounds(board.items);
+  const b = allBounds(board.items.filter(i => bounds(i).x > HIDDEN_X / 2));
   if (!b) { board.view = { x: vp.clientWidth / 2, y: vp.clientHeight / 2, z: 1 }; applyView(); return; }
   const pad = 80, top = 0;
   const z = clamp(Math.min((vp.clientWidth - pad * 2) / Math.max(b.w, 1), (vp.clientHeight - pad * 2 - top) / Math.max(b.h, 1)), 1e-6, 1.5);
@@ -2275,6 +2309,8 @@ function applyCloud(obj) {
       if (b) save('ideataulu-' + keep, b);
       openBoard(keep);
       ensureLayoutMode();
+      ensureCalendar(board.items);
+      board.divider = arrangeItems(board.items); render(); clearTimeout(saveTimer); persist();
     }
     markSynced();
   } finally { cloudApplying = false; }
@@ -2300,6 +2336,28 @@ async function startSync() {
     }, e => console.warn('synkronointi: kuuntelu ei onnistunut', e && (e.code || e.message)));
   } catch (e) { console.warn('synkronointi ei ole käytössä', e && (e.code || e.message)); }
 }
+
+/* ---------- month navigation ---------- */
+function showMonth(key, pickDay) {
+  if (!board) return;
+  save('kalenteri-kk', key);
+  const added = ensureCalendar(board.items);
+  if (added) for (const f of board.items.filter(i => i.kind === 'frame' && i.day && i.x < -1e5 && i.y < -1e5)) layoutFrame(f, [], [], []);
+  board.divider = arrangeItems(board.items);
+  sel.clear();
+  if (pickDay) { const f = board.items.find(i => i.kind === 'frame' && i.day === pickDay); if (f) sel.add(f.id); }
+  render();
+  /* a month switch is this screen's view, not an edit: no undo step, no upload of the moved positions */
+  clearTimeout(saveTimer); persist(); hist = [snap()]; hi = 0; updateButtons();
+  if (typeof markSynced === 'function') markSynced();
+  $('calDate').value = pickDay || key + '-01';
+}
+function stepMonth(n) { const [yy, mm] = shownMonth().split('-').map(Number); showMonth(monthKey(new Date(yy, mm - 1 + n, 1))); }
+$('calPrev').onclick = () => stepMonth(-1);
+$('calNext').onclick = () => stepMonth(1);
+$('calToday').onclick = () => { const t = new Date(); showMonth(monthKey(t), isoDay(t)); };
+$('calDate').addEventListener('change', () => { const v = $('calDate').value; if (/^\d{4}-\d{2}-\d{2}$/.test(v)) showMonth(v.slice(0, 7), v); });
+$('calDate').addEventListener('keydown', e => e.stopPropagation());
 
 /* ---------- lock: the board and routine live only in the encrypted file ---------- */
 /* the browser remembers the derived key (not the password) after the first unlock; a new salt asks again */
@@ -2356,8 +2414,10 @@ function unlock(payload) {
   } else { migrateTidy(); ensureRoutineSection(); migrateBoards(); }
   ensureLayoutMode();
   if (board) {
+    save('kalenteri-kk', monthKey(new Date()));
+    $('calDate').value = isoDay(new Date());
     const added = ensureCalendar(board.items);
-    if (added || !board.divider) {
+    if (added || !board.divider || true) {
       /* new day sections get their size from the grid planner, then everything is arranged */
       for (const f of board.items.filter(i => i.kind === 'frame' && i.day && i.x < -1e5)) layoutFrame(f, [], [], []);
       board.divider = arrangeItems(board.items);
