@@ -1052,7 +1052,7 @@ const SECTION_GAP = 16;
 function kidSize(n) { return { W: (FIX_W - 2 * FP - SECTION_GAP * (n - 1)) / n, H: fixH() - FT - FP }; }
 function sizeParent(par) { par.w = FIX_W; par.h = fixH(); }
 /* plans: Map(frame -> {slots, images, pins}) worked out BEFORE anything moved; sections not in the map keep their contents */
-const FRAME_GAP = 90;
+const FRAME_GAP = 40;   /* same gap as between calendar days (owner 27.10.2026) */
 function topOf(f) { let t = f; while (t && t.parent) { const p = find(t.parent); if (!p) break; t = p; } return t; }
 function applyPlans(plans, exclude) {
   /* 1. before anything moves: which top-level frame owns which items */
@@ -2099,6 +2099,10 @@ function migrateBoards() {
   if (!load('kuukaudet-v1', false) && board) {
     if (board.items.some(i => i.kind === 'frame' && i.day)) { board.divider = arrangeItems(board.items); render(); commit(); fitView(); }
     save('kuukaudet-v1', true);
+  }
+  if (!load('valit-v1', false) && board) {
+    if (board.divider) { board.divider = arrangeItems(board.items); render(); clearTimeout(saveTimer); persist(); }
+    save('valit-v1', true);
   }
   if (!load('kiintea-koko-v1', false) && board) {
     if (board.items.some(i => i.kind === 'frame')) { ensureCalendar(board.items); tidyItems(board.items); render(); commit(); fitView(); }
