@@ -61,10 +61,11 @@
   .frame.sel { border-color: var(--sel); box-shadow: 0 0 0 2px var(--sel); }
   .frame.today { border-color: #FF8559; box-shadow: 0 0 0 4px #FF8559; }
   .frame.pastday { opacity: .55; }
+  .monthlabel { position: absolute; font-size: 64px; font-weight: 600; color: rgba(243, 233, 210, .75); white-space: nowrap; pointer-events: none; text-transform: capitalize; }
   #divider { position: absolute; width: 6px; border-radius: 3px; background: rgba(243, 233, 210, .35); pointer-events: none; display: none; }
   .ftitle {
-    position: absolute; left: 0; top: 0; right: 0; padding: 10px 16px; min-height: 44px;
-    font-weight: 600; font-size: 34px; color: var(--note-ink); cursor: move; pointer-events: auto;
+    position: absolute; left: 0; top: 0; right: 0; padding: 10px 16px; min-height: 44px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-weight: 600; font-size: 26px; color: var(--note-ink); cursor: move; pointer-events: auto;
     outline: none; white-space: pre-wrap; overflow-wrap: anywhere;
   }
   .freset {
@@ -93,18 +94,19 @@
     white-space: pre-wrap; overflow-wrap: normal; outline: none;
     display: flex; align-items: center; justify-content: center; text-align: center; font-weight: 500;
   }
+  .note .txt { padding: calc(30px * var(--s, 1)) 7% calc(40px * var(--s, 1)); }
   .note[data-shape=circle] .txt { padding: 18%; }
   .note[data-shape=diamond] .txt, .note[data-shape=hexagon] .txt { padding: 24%; }
   .txt[contenteditable=true] { cursor: text; overflow: hidden; }
   .tag {
-    position: absolute; top: -11px; left: 50%; transform: translateX(-50%); z-index: 2;
+    position: absolute; top: calc(5px * var(--s, 1)); left: 50%; transform: translateX(-50%) scale(var(--s, 1)); transform-origin: top center; z-index: 2;
     background: #f3e9d2; color: #2b241c; border: 1px solid rgba(43,36,28,.25); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 3px;
     white-space: nowrap; cursor: text; outline: none; font-variant-numeric: tabular-nums; min-width: 24px; text-align: center;
   }
   .tag[contenteditable=true], .tag.editing { box-shadow: 0 0 0 2px var(--sel); }
   .tag input { font: inherit; font-size: 12px; color: #2b241c; background: transparent; border: 0; outline: none; padding: 0; }
   .status {
-    position: absolute; right: -12px; bottom: -12px; width: 42px; height: 42px; cursor: pointer; z-index: 2;
+    position: absolute; right: calc(5px * var(--s, 1)); bottom: calc(5px * var(--s, 1)); width: calc(34px * var(--s, 1)); height: calc(34px * var(--s, 1)); cursor: pointer; z-index: 2;
     filter: drop-shadow(0 2px 2px rgba(0,0,0,.3)); transition: transform .12s ease;
   }
   .status svg { width: 100%; height: 100%; display: block; }
@@ -282,7 +284,7 @@
 </div>
 <div id="viewport">
   <div id="world">
-    <div class="layer" id="frameLayer"><div id="divider"></div></div>
+    <div class="layer" id="frameLayer"><div id="divider"></div><div id="monthLabels"></div></div>
     <svg class="layer" id="linkSvg" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -643,14 +645,15 @@ function fitText(e, it, force) {
   if (t.isContentEditable && !force) return;
   const key = it.text + '|' + it.w + '|' + it.h + '|' + (it.shape || '') + '|' + (it.size || '');
   if (!force && t.dataset.fit === key) return;
-  t.dataset.fit = force ? '' : key;
+  t.dataset.fit = force || !t.clientHeight ? '' : key;
   let size = it.kind === 'text' ? (it.size || 24) : clamp(Math.round(Math.min(it.w, it.h) * 0.24), 12, 44);
-  const min = 8;
+  /* zoom has no limit, so text may get as small as it must to fit (owner 27.10.2026) */
+  const min = 0.5;
   t.style.fontSize = size + 'px';
   if (it.kind === 'text') return;
   t.style.overflowWrap = 'normal';
   const over = () => t.scrollHeight > t.clientHeight + 1 || t.scrollWidth > t.clientWidth + 1;
-  while (size > min && over()) { size -= 1; t.style.fontSize = size + 'px'; }
+  while (size > min && over()) { size = size > 6 ? size - 1 : +(size * 0.85).toFixed(2); t.style.fontSize = size + 'px'; }
   if (over()) t.style.overflowWrap = 'anywhere';
 }
 
@@ -674,6 +677,7 @@ function updateEl(e, it) {
   }
   Object.assign(e.style, { left: it.x + 'px', top: it.y + 'px', width: it.w + 'px', height: it.h + 'px' });
   e.style.transform = it.rot ? `rotate(${it.rot}deg)` : '';
+  e.style.setProperty('--s', Math.min(1, Math.max(0.05, Math.min(it.w, it.h) / 170)).toFixed(3));
   e.classList.toggle('sel', s);
   if (it.kind === 'image') {
     const img = e.querySelector('img');
@@ -742,11 +746,14 @@ function render() {
   for (const [id, e] of els) if (!seen.has(id)) { e.remove(); els.delete(id); }
   /* keep DOM order = array order so later items draw on top */
   const order = board.items.map(i => i.id).join(',');
-  if (order !== lastOrder) { for (const it of board.items) { const e = els.get(it.id); e.parentNode.append(e); } lastOrder = order; $('frameLayer').prepend($('divider')); }
+  if (order !== lastOrder) { for (const it of board.items) { const e = els.get(it.id); e.parentNode.append(e); } lastOrder = order; $('frameLayer').prepend($('divider'), $('monthLabels')); }
   renderLinks();
   const dv = $('divider');
   if (board.divider) Object.assign(dv.style, { display: 'block', left: board.divider.x - 3 + 'px', top: board.divider.y + 'px', height: board.divider.h + 'px' });
   else dv.style.display = 'none';
+  const ml = $('monthLabels'), labs = [];   /* no month names (owner 27.10.2026) */
+  const key = JSON.stringify(labs);
+  if (ml.dataset.k !== key) { ml.dataset.k = key; ml.innerHTML = labs.map(l => `<div class="monthlabel" style="left:${l.x}px;top:${l.y}px">${l.text}</div>`).join(''); }
   applyView();
   updateButtons();
 }
@@ -894,7 +901,8 @@ function frameMembers(f, exclude) {
     if (im) { if (images.includes(im)) pins.push({ n: it, im, rx: (it.x - im.x) / im.w, ry: (it.y - im.y) / im.h, rw: it.w / im.w, rh: it.h / im.h }); continue; }
     if (frameOf(it, frames) === f) notes.push(it);
   }
-  const ord = (a, b) => (Math.round((a.y - f.y - G.TITLE) / STEP) - Math.round((b.y - f.y - G.TITLE) / STEP)) || (a.x - b.x);
+  const st = (f.cell || G.CELL) + (f.gap || 0);
+  const ord = (a, b) => (Math.round((a.y - f.y - FT) / st) - Math.round((b.y - f.y - FT) / st)) || (a.x - b.x);
   notes.sort(ord); images.sort(ord);
   return { notes, images, pins };
 }
@@ -938,30 +946,43 @@ function ensureLayoutMode() {
   if (typeof markSynced === 'function') markSynced();
 }
 MOBILE_Q.addEventListener('change', () => ensureLayoutMode());
+/* fixed section size (owner 27.10.2026): the section never changes, the notes do */
+const FIX_W = 560, FP = 16, FT = 56, GAP_FR = 0.12;
+const fixH = () => Math.round(FIX_W / ratio());
+/* largest square cell that fits n cells into W x H */
+function fitPlan(n, W, H) {
+  const aw = W - 2 * FP, ah = H - FT - FP;
+  let best = { c: 1, s: Math.min(aw, ah) };
+  for (let c = 1; c <= Math.max(1, n); c++) {
+    const r = Math.max(1, Math.ceil(n / c));
+    const sz = Math.min(aw / (c + (c - 1) * GAP_FR), ah / (r + (r - 1) * GAP_FR));
+    if (sz > best.s + 0.01 || c === 1) { if (c === 1 || sz > best.s) best = { c, s: sz }; }
+  }
+  return { c: best.c, s: Math.floor(best.s), g: Math.floor(best.s * GAP_FR) };
+}
 function slotAt(f, x, y) {
-  const cols = f.cols || G.COLS;
-  const col = clamp(Math.floor((x - f.x - G.PAD + G.GAP / 2) / STEP), 0, cols - 1);
-  const row = Math.max(0, Math.floor((y - f.y - G.TITLE + G.GAP / 2) / STEP));
+  const cols = f.cols || 1, sz = f.cell || G.CELL, g = f.gap || 0;
+  const col = clamp(Math.floor((x - f.x - FP + g / 2) / (sz + g)), 0, cols - 1);
+  const row = Math.max(0, Math.floor((y - f.y - FT + g / 2) / (sz + g)));
   return row * cols + col;
 }
 /* lay a frame out; `slots` may contain null placeholders (an empty cell for the note being dragged) */
-function layoutFrame(f, slots, images, pins) {
-  const plan = gridPlan(slots.length, images), cols = plan.c;
-  f.cols = cols;
-  slots.forEach((n, i) => {
-    if (!n) return;
-    n.rot = 0; n.w = G.CELL; n.h = G.CELL;
-    n.x = f.x + G.PAD + (i % cols) * STEP; n.y = f.y + G.TITLE + Math.floor(i / cols) * STEP;
+function layoutFrame(f, slots, images, pins, size) {
+  const W = size ? size.W : FIX_W, H = size ? size.H : fixH();
+  f.w = Math.round(W); f.h = Math.round(H);
+  const cells = [...slots, ...images];
+  const plan = fitPlan(cells.length, W, H), cols = plan.c, sz = plan.s, g = plan.g;
+  f.cols = cols; f.cell = sz; f.gap = g;
+  cells.forEach((it, i) => {
+    if (!it) return;
+    const cx = f.x + FP + (i % cols) * (sz + g), cy = f.y + FT + Math.floor(i / cols) * (sz + g);
+    it.rot = 0;
+    if (it.kind === 'image') {
+      const k = Math.min(sz / it.w, sz / it.h); it.w = Math.max(1, Math.round(it.w * k)); it.h = Math.max(1, Math.round(it.h * k));
+      it.x = Math.round(cx + (sz - it.w) / 2); it.y = Math.round(cy + (sz - it.h) / 2);
+    } else { it.w = sz; it.h = sz; it.x = cx; it.y = cy; }
   });
-  let y = f.y + G.TITLE + (slots.length ? Math.ceil(slots.length / cols) * STEP : 0);
-  let rowH = 0;
-  images.forEach((im, i) => {
-    const k = IMG_W / im.w; im.w = Math.round(IMG_W); im.h = Math.round(im.h * k); im.rot = 0;
-    if (i && i % plan.per === 0) { y += rowH + G.GAP; rowH = 0; }
-    im.x = f.x + G.PAD + (i % plan.per) * (IMG_W + G.GAP); im.y = y; rowH = Math.max(rowH, im.h);
-  });
-  for (const p of pins) { p.n.x = Math.round(p.im.x + p.rx * p.im.w); p.n.y = Math.round(p.im.y + p.ry * p.im.h); p.n.w = Math.round(p.rw * p.im.w); p.n.h = Math.round(p.rh * p.im.h); }
-  f.w = plan.W; f.h = plan.H;
+  for (const p of pins) { p.n.x = Math.round(p.im.x + p.rx * p.im.w); p.n.y = Math.round(p.im.y + p.ry * p.im.h); p.n.w = Math.max(8, Math.round(p.rw * p.im.w)); p.n.h = Math.max(8, Math.round(p.rh * p.im.h)); }
   if (f.routine) {
     /* schedule: start time + each step's length, in grid order (owner 27.10.2026) */
     const [h0, m0] = (load('rutiini-aloitus', '07:00') || '07:00').split(':').map(Number);
@@ -976,14 +997,10 @@ function layoutFrame(f, slots, images, pins) {
     for (const n of slots) if (n && n.inRoutine && typeof n.routine !== 'number') { n.inRoutine = false; n.tag = null; }
   }
 }
-/* a parent holds its sections side by side and is itself 16:9 */
-const SECTION_GAP = 40;
-function sizeParent(par, kids) {
-  let x = par.x + G.PAD, maxH = 0;
-  for (const k of kids) { x += k.w + SECTION_GAP; maxH = Math.max(maxH, k.h); }
-  par.w = Math.round(x - SECTION_GAP + G.PAD - par.x); par.h = Math.round(G.TITLE + maxH + G.PAD);
-  fit169(par);
-}
+/* a parent has the same fixed size; its sections share the inside */
+const SECTION_GAP = 16;
+function kidSize(n) { return { W: (FIX_W - 2 * FP - SECTION_GAP * (n - 1)) / n, H: fixH() - FT - FP }; }
+function sizeParent(par) { par.w = FIX_W; par.h = fixH(); }
 /* plans: Map(frame -> {slots, images, pins}) worked out BEFORE anything moved; sections not in the map keep their contents */
 const FRAME_GAP = 90;
 function topOf(f) { let t = f; while (t && t.parent) { const p = find(t.parent); if (!p) break; t = p; } return t; }
@@ -1001,7 +1018,8 @@ function applyPlans(plans, exclude) {
   /* 2. calendar on the left, the other sections in a column on the right */
   board.divider = arrangeTops(tops, owned);
 }
-const CAL_GAP = 40, DIVIDER_GAP = 160, CAL_WEEKS = 5;
+const CAL_GAP = 40, DIVIDER_GAP = 160, CAL_WEEKS = 5, MONTH_TITLE_H = 110, MONTH_GAP = 160;
+const MONTH_NAMES = ['tammikuu', 'helmikuu', 'maaliskuu', 'huhtikuu', 'toukokuu', 'kesäkuu', 'heinäkuu', 'elokuu', 'syyskuu', 'lokakuu', 'marraskuu', 'joulukuu'];
 const WEEKDAYS = ['su', 'ma', 'ti', 'ke', 'to', 'pe', 'la'];
 function ownedBy(tops, items, skip) {
   const owned = new Map(tops.map(t => [t, new Set()]));
@@ -1025,29 +1043,42 @@ function arrangeTops(tops, owned) {
   const days = tops.filter(f => f.day).sort((a, b) => (a.day < b.day ? -1 : 1));
   const others = tops.filter(f => !f.day).sort((a, b) => (a.y - b.y) || (a.x - b.x));
   let calRight = 0, calBottom = 0;
+  const labels = [];
   if (days.length) {
-    const monday = iso => { const d = new Date(iso + 'T00:00'); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d; };
-    const first = monday(days[0].day).getTime();
-    const cellW = Math.max(...days.map(f => f.w));
-    const pos = days.map(f => { const d = new Date(f.day + 'T00:00'); return { f, row: Math.round((monday(f.day).getTime() - first) / (7 * DAY)), col: (d.getDay() + 6) % 7 }; });
-    const rows = Math.max(...pos.map(p => p.row)) + 1;
-    const rowH = Array(rows).fill(0); for (const p of pos) rowH[p.row] = Math.max(rowH[p.row], p.f.h);
-    const rowY = []; let y = 0; for (let r = 0; r < rows; r++) { rowY.push(y); y += rowH[r] + CAL_GAP; }
-    for (const p of pos) moveTop(p.f, owned, p.col * (cellW + CAL_GAP), rowY[p.row]);
-    calRight = 7 * (cellW + CAL_GAP) - CAL_GAP; calBottom = y - CAL_GAP;
+    /* each month is its own block with a title and extra space above (owner 27.10.2026) */
+    const cellW = Math.max(...days.map(f => f.w)), cellH = Math.max(...days.map(f => f.h));
+    const months = [];
+    for (const f of days) { const key = f.day.slice(0, 7); if (!months.length || months[months.length - 1].key !== key) months.push({ key, days: [] }); months[months.length - 1].days.push(f); }
+    let y = 0;
+    for (const m of months) {
+      const [yy, mm] = m.key.split('-').map(Number);
+      /* no month names or years (owner 27.10.2026): the space between months is the break */
+      const lead = (new Date(yy, mm - 1, 1).getDay() + 6) % 7;
+      const rowOf = f => Math.floor((+f.day.slice(8, 10) - 1 + lead) / 7);
+      const rowsUsed = [...new Set(m.days.map(rowOf))].sort((p, q) => p - q);
+      for (const f of m.days) {
+        const r = rowsUsed.indexOf(rowOf(f)), col = (new Date(f.day + 'T00:00').getDay() + 6) % 7;
+        moveTop(f, owned, col * (cellW + CAL_GAP), y + r * (cellH + CAL_GAP));
+      }
+      y += rowsUsed.length * (cellH + CAL_GAP) - CAL_GAP + MONTH_GAP;
+    }
+    calRight = 7 * (cellW + CAL_GAP) - CAL_GAP; calBottom = y - MONTH_GAP;
   }
   const colX = days.length ? calRight + DIVIDER_GAP * 2 : 0;
   let y = 0;
   for (const f of others) { moveTop(f, owned, colX, y); y += f.h + FRAME_GAP; }
   const bottom = Math.max(calBottom, y - FRAME_GAP);
-  return days.length ? { x: calRight + DIVIDER_GAP, y: -60, h: bottom + 120 } : null;
+  return days.length ? { x: calRight + DIVIDER_GAP, y: -60, h: bottom + 120, labels } : null;
 }
 /* one section per day: from this week's Monday, always CAL_WEEKS weeks ahead */
 function ensureCalendar(items) {
   const have = new Set(items.filter(i => i.kind === 'frame' && i.day).map(i => i.day));
   const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7);
   let added = 0;
-  for (let k = 0; k < CAL_WEEKS * 7; k++) {
+  /* three months: from this week's Monday to the end of the month after next (owner 27.10.2026) */
+  const end = new Date(); end.setHours(0, 0, 0, 0); end.setMonth(end.getMonth() + 3, 0);
+  const days = Math.round((end - d) / DAY) + 1;
+  for (let k = 0; k < days; k++) {
     const iso = isoDay(d);
     if (!have.has(iso)) {
       items.unshift({ id: uid(), kind: 'frame', day: iso, title: WEEKDAYS[d.getDay()] + ' ' + d.getDate() + '.' + (d.getMonth() + 1) + '.', color: '#ffffff', x: -1e6 + k * 2000, y: -1e6, w: 560, h: 265 });
@@ -1068,9 +1099,9 @@ function layoutPlans(plans, exclude) {
     const par = find(pid); if (!par) continue;
     const kids = board.items.filter(k => k.kind === 'frame' && k.parent === pid).sort((a, b) => a.x - b.x);
     const all = kids.map(k => plans.get(k) || (() => { const m = frameMembers(k, exclude); return { slots: m.notes, images: m.images, pins: m.pins }; })());
-    let x = par.x + G.PAD;
-    kids.forEach((k, i) => { k.x = x; k.y = par.y + G.TITLE; layoutFrame(k, all[i].slots, all[i].images, all[i].pins); x += k.w + SECTION_GAP; });
-    sizeParent(par, kids);
+    let x = par.x + FP; const ks = kidSize(kids.length);
+    kids.forEach((k, i) => { k.x = Math.round(x); k.y = par.y + FT; layoutFrame(k, all[i].slots, all[i].images, all[i].pins, ks); x += ks.W + SECTION_GAP; });
+    sizeParent(par);
   }
 }
 function reflowFrame(f, exclude) { if (!f) return; const m = frameMembers(f, exclude); applyPlans(new Map([[f, { slots: m.notes, images: m.images, pins: m.pins }]]), exclude); }
@@ -1451,7 +1482,8 @@ vp.addEventListener('dblclick', e => {
 });
 
 function zoomAt(cx, cy, f) {
-  const v = board.view, z = clamp(v.z * f, 0.1, 4);
+  /* no zoom limits (owner 27.10.2026); the bounds only keep the numbers finite */
+  const v = board.view, z = clamp(v.z * f, 1e-6, 1e6);
   const k = z / v.z;
   v.x = cx - (cx - v.x) * k; v.y = cy - (cy - v.y) * k; v.z = z;
   applyView();
@@ -1473,7 +1505,7 @@ function fitView() {
   const b = allBounds(board.items);
   if (!b) { board.view = { x: vp.clientWidth / 2, y: vp.clientHeight / 2, z: 1 }; applyView(); return; }
   const pad = 80, top = 0;
-  const z = clamp(Math.min((vp.clientWidth - pad * 2) / Math.max(b.w, 1), (vp.clientHeight - pad * 2 - top) / Math.max(b.h, 1)), 0.1, 1.5);
+  const z = clamp(Math.min((vp.clientWidth - pad * 2) / Math.max(b.w, 1), (vp.clientHeight - pad * 2 - top) / Math.max(b.h, 1)), 1e-6, 1.5);
   board.view = { z, x: vp.clientWidth / 2 - (b.x + b.w / 2) * z, y: (vp.clientHeight + top) / 2 - (b.y + b.h / 2) * z };
   applyView(); persistSoon();
 }
@@ -1656,13 +1688,14 @@ function exportPng() {
       const tt = tagText(it);
       if (tt) {
         c.save(); c.font = font(600, 12); const tw = c.measureText(tt).width + 16;
-        c.fillStyle = ncol; roundRect(c, it.x + it.w / 2 - tw / 2, it.y - 11, tw, 20, 3); c.fill();
+        c.fillStyle = ncol; roundRect(c, it.x + it.w / 2 - tw / 2, it.y + 5, tw, 20, 3); c.fill();
         c.strokeStyle = 'rgba(43,36,28,.25)'; c.lineWidth = 1; c.stroke();
-        c.fillStyle = '#2b241c'; c.textBaseline = 'middle'; c.textAlign = 'center'; c.fillText(tt, it.x + it.w / 2, it.y - 1); c.textAlign = 'left';
+        c.fillStyle = '#2b241c'; c.textBaseline = 'middle'; c.textAlign = 'center'; c.fillText(tt, it.x + it.w / 2, it.y + 15); c.textAlign = 'left';
         c.restore();
       }
+      const sc = Math.min(1, Math.max(0.05, Math.min(it.w, it.h) / 170)), bs = 34 * sc;
       const bi = BADGE_IMG[it.status];
-      if (bi && bi.complete) c.drawImage(bi, it.x + it.w - 30, it.y + it.h - 30, 42, 42);
+      if (bi && bi.complete) c.drawImage(bi, it.x + it.w - bs - 5 * sc, it.y + it.h - bs - 5 * sc, bs, bs);
     } else if (it.kind === 'image') {
       const img = els.get(it.id) && els.get(it.id).querySelector('img');
       if (img && img.complete && img.naturalWidth) { c.save(); c.shadowColor = 'rgba(0,0,0,.25)'; c.shadowBlur = 12; c.shadowOffsetY = 4; c.drawImage(img, it.x, it.y, it.w, it.h); c.restore(); }
@@ -1797,6 +1830,15 @@ document.addEventListener('keydown', e => {
 });
 addEventListener('beforeunload', () => { if (board) persist(); });
 addEventListener('resize', applyView);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => {
+  els.forEach(e => { const t = e.querySelector('.txt'); if (t) t.dataset.fit = ''; });
+  if (board) render();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !board) return;
+  els.forEach(e => { const t = e.querySelector('.txt'); if (t && !t.dataset.fit) t.dataset.fit = ''; });
+  render();
+});
 setInterval(() => { if (board) render(); }, 60 * 1000);
 setInterval(() => {
   if (!board) return;
@@ -1969,6 +2011,14 @@ function migrateBoards() {
     save('jarjestely-v2', true);
   }
   /* every frame 16:9 (owner 26.10.2026): lay boards out once with the new planner */
+  if (!load('kuukaudet-v1', false) && board) {
+    if (board.items.some(i => i.kind === 'frame' && i.day)) { board.divider = arrangeItems(board.items); render(); commit(); fitView(); }
+    save('kuukaudet-v1', true);
+  }
+  if (!load('kiintea-koko-v1', false) && board) {
+    if (board.items.some(i => i.kind === 'frame')) { ensureCalendar(board.items); tidyItems(board.items); render(); commit(); fitView(); }
+    save('kiintea-koko-v1', true);
+  }
   if (!load('rivi-pakattu-v1', false) && board) {
     const f0 = board.items.find(i => i.kind === 'frame' && !i.parent);
     if (f0) { applyPlans(new Map()); render(); commit(); }
@@ -2127,9 +2177,9 @@ function tidyItems(items, assign) {
       /* anything lying directly on the parent goes into its first section */
       groups.get(kids[0]).push(...groups.get(f));
       f.x = x; f.y = y;
-      let kx = x + PAD;
-      for (const k of kids) { k.x = kx; k.y = y + TITLE; const [n, im] = split(groups.get(k)); layoutFrame(k, n, im, []); kx += k.w + SECTION_GAP; }
-      sizeParent(f, kids);
+      let kx = x + FP; const ks = kidSize(kids.length);
+      for (const k of kids) { k.x = Math.round(kx); k.y = y + FT; const [n, im] = split(groups.get(k)); layoutFrame(k, n, im, [], ks); kx += ks.W + SECTION_GAP; }
+      sizeParent(f);
     } else {
       f.x = x; f.y = y;
       const [n, im] = split(groups.get(f));
