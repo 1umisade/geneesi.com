@@ -955,7 +955,8 @@ function frameMembers(f, exclude) {
 /* every frame has the owner's screenshot ratio, 1436 x 681 (26.10.2026; replaced 16:9 the same day):
    try each column count, keep the smallest box of that ratio the contents fit in */
 /* on phones every frame is 1 : 1.5 (owner 27.10.2026) */
-const MOBILE_Q = matchMedia('(max-width: 800px)');
+/* a hidden window reports width 0: that is not a phone */
+const MOBILE_Q = matchMedia('(min-width: 1px) and (max-width: 800px)');
 const layoutMode = () => MOBILE_Q.matches ? 'mobile' : 'desktop';
 /* on a phone: the routine only, unless "show all" is on */
 let mobileAll = load('mobiili-kaikki', false);
@@ -2242,7 +2243,8 @@ function tidyItems(items, assign) {
     const f = (assign && assign.get(it)) || frames.filter(fr => inside(it, fr)).sort((a, b) => a.w * a.h - b.w * b.h)[0];
     (f ? groups.get(f) : loose).push(it);
   }
-  const order = (a, b) => (Math.round(a.y / 120) - Math.round(b.y / 120)) || (a.x - b.x);
+  /* reading order: rows measured in the notes' own grid step, not a fixed 120 (small sections merged rows and shuffled them) */
+  const order = (a, b) => { const st = Math.max(1, Math.min(a.h, b.h) * (1 + GAP_FR)); return (Math.round((a.y - b.y) / st)) || (a.x - b.x); };
   /* lay out one group starting at x0, y0 in a grid of `cols`; returns the height used */
   const place = (list, x0, y0, cols) => {
     const notes = list.filter(i => i.kind !== 'image').sort(order), imgs = list.filter(i => i.kind === 'image').sort(order);
