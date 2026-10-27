@@ -69,12 +69,12 @@
     font-weight: 600; font-size: 26px; color: var(--note-ink); cursor: move; pointer-events: auto;
     outline: none; white-space: pre-wrap; overflow-wrap: anywhere;
   }
+  /* just the arrow, no pill (owner 27.10.2026) */
   .freset {
-    position: absolute; top: 12px; right: 14px; pointer-events: auto; cursor: pointer;
-    font-family: "Courier New", monospace; font-weight: bold; letter-spacing: .5px; font-size: 15px;
-    background: #f3e9d2; color: #2b241c; border: 3px solid #6b4a2b; border-radius: 999px; padding: 6px 14px;
+    position: absolute; top: 8px; right: 14px; pointer-events: auto; cursor: pointer;
+    font-size: 28px; line-height: 1; background: none; border: 0; padding: 4px; color: var(--note-ink); opacity: .6;
   }
-  .freset:hover { background: #fff6e0; }
+  .freset:hover { opacity: 1; }
   .ftitle[contenteditable=true] { cursor: text; background: rgba(255,255,255,.5); border-radius: 12px 12px 0 0; }
 
   #viewport, #viewport * { -webkit-user-select: none; user-select: none; }
@@ -649,7 +649,7 @@ function makeEl(it) {
   let e;
   if (it.kind === 'frame') {
     e = document.createElement('div'); e.className = 'frame';
-    e.innerHTML = '<div class="ftitle"></div><div class="rs"></div>' + (it.routine ? '<button class="freset" type="button" title="Merkitse kaikki rutiinin laput uusiksi">↺ Nollaa</button>' : '');
+    e.innerHTML = '<div class="ftitle"></div><div class="rs"></div>' + (it.routine ? '<button class="freset" type="button" title="Nollaa: merkitse kaikki rutiinin laput uusiksi" aria-label="Nollaa">↺</button>' : '');
     $('frameLayer').append(e);
   } else if (it.kind === 'stroke') {
     e = document.createElementNS('http://www.w3.org/2000/svg', 'path');
