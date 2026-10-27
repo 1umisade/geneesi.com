@@ -389,7 +389,7 @@
   <table>
     <tr><td>Uusi lappu</td><td>Keskiklikkaa tyhjää kohtaa, tuplaklikkaa tai paina N</td></tr>
     <tr><td>Tila</td><td>Klikkaa lappua: uusi, työn alla, valmis.</td></tr>
-    <tr><td>Muokkaa tekstiä</td><td>Tuplaklikkaa lappua. Enter tallentaa, Shift + Enter tekee uuden rivin.</td></tr>
+    <tr><td>Muokkaa tekstiä</td><td>Tuplaklikkaa lappua. Enter tekee uuden rivin; Esc tai klikkaus muualle lopettaa.</td></tr>
     <tr><td>Määräaika</td><td>Lapun yläreunan laatikko näyttää juoksevan ajan määräaikaan. Klikkaa sitä antaaksesi päivän ja kellonajan. Uudella lapulla kuukauden päästä. Lappu on vihreä kun aikaa on kuukausi tai enemmän, sitten keltainen, oranssi ja määräpäivänä punainen. Klikkaa laatikkoa muokataksesi.</td></tr>
     <tr><td>Tila</td><td>Klikkaa lapun kulman merkkiä: uusi, työn alla, valmis. </td></tr>
     <tr><td>Kuva</td><td>Liitä leikepöydältä (Ctrl + V) tai pudota kuvatiedosto taululle</td></tr>
@@ -817,7 +817,8 @@ function startEdit(id, frameTitle = false, cx, cy) {
     render(); commit();
   };
   const key = ev => {
-    if (ev.key === 'Escape' || (ev.key === 'Enter' && !ev.shiftKey)) { ev.preventDefault(); t.blur(); }
+    /* Enter is only a line break (owner 27.10.2026); Esc or a click elsewhere finishes */
+    if (ev.key === 'Escape') { ev.preventDefault(); t.blur(); }
     ev.stopPropagation();
   };
   t.addEventListener('blur', done); t.addEventListener('keydown', key); t.addEventListener('input', refit);
@@ -850,7 +851,6 @@ function startTagEdit(id) {
   };
   inp.addEventListener('keydown', ev => {
     ev.stopPropagation();
-    if (ev.key === 'Enter') { ev.preventDefault(); close(true); }
     if (ev.key === 'Escape') { ev.preventDefault(); close(false); }
   });
   inp.addEventListener('blur', () => close(true));
@@ -1697,7 +1697,6 @@ document.addEventListener('keydown', e => {
   if (mod) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
   if (e.key === 'Escape') { sel.clear(); closeMenus(); $('help').classList.remove('open'); tool = 'select'; render(); return; }
-  if (e.key === 'Enter' && sel.size === 1) { const it = find([...sel][0]); if (it && it.kind !== 'stroke') { e.preventDefault(); startEdit(it.id, it.kind === 'frame'); } return; }
   if (k === 'n') { $('addNote').click(); return; }
   if (k === 'f') { $('addFrame').click(); return; }
   if (k === 'v') { tool = 'select'; updateButtons(); return; }
