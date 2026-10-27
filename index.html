@@ -593,8 +593,9 @@ function persist() {
   save('ideataulut', index);
   if (!ok) toast('Tallennus epäonnistui: selaimen tila voi olla täynnä');
   cloudSoon();
+  if (typeof liveSend === 'function') liveSend();
 }
-function persistSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 300); }
+function persistSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 100); }
 function cloudSoon() { if (typeof cloudPush === 'function') cloudPush(); }
 
 /* ---------- history ---------- */
@@ -868,7 +869,7 @@ function startEdit(id, frameTitle = false, cx, cy) {
   }
   s.addRange(r);
   /* while typing, the text keeps shrinking or growing to fit the note */
-  const refit = () => { const it = find(id); if (it && (it.kind === 'note' || it.kind === 'text') && !frameTitle) fitText(e, it, true); };
+  const refit = () => { const it = find(id); if (it && (it.kind === 'note' || it.kind === 'text') && !frameTitle) fitText(e, it, true); if (typeof liveSend === 'function') liveSend(); };
   refit();
   const done = () => {
     t.removeEventListener('blur', done); t.removeEventListener('keydown', key); t.removeEventListener('input', refit);
@@ -1233,6 +1234,7 @@ function applyMove(d) {
     const t = frameAt(w.x, w.y), key = t ? t.id + ':' + clamp(slotAt(t, w.x, w.y), 0, 999) : '-';
     if (key !== d.flowKey) { d.flowKey = key; flowAround(d.ids, d.items, d.src, w, false); full = true; }
   } else if (d.objs.some(i => i.kind === 'frame')) full = true;
+  if (typeof liveSend === 'function') liveSend();
   if (full) { render(); return; }
   /* cheap path: only the dragged elements move */
   for (const it of d.objs) { const e = els.get(it.id); if (e) updateEl(e, it); }
@@ -2356,7 +2358,47 @@ function cloudPush() {
       await cloudRef.set({ ...sealed, updated, device: DEVICE });
       cloudSeen = updated; save('geneesi-synkka', updated); cloudOk = true; cloudBase = key;
     } catch (e) { console.warn('synkronointi: tallennus ei onnistunut', e && (e.code || e.message)); }
-  }, 1500);
+  }, 150);   /* changes reach the other devices right away (owner 27.10.2026) */
+}
+/* ---------- live: the other devices see drags and typing as they happen, like an online game (owner 27.10.2026) ----------
+   a second small document carries only what is moving right now; the full board still follows through cloudPush */
+var liveRef = null, liveLast = new Map(), liveTimer = 0, liveNext = 0;   /* var: persist() may call liveSend before this line runs */
+const LIVE_MS = 150;
+const liveKey = it => it.x + ',' + it.y + ',' + it.w + ',' + it.h;
+function liveSeed() { liveLast = new Map(board ? board.items.filter(i => i.kind !== 'stroke').map(i => [i.id, liveKey(i)]) : []); }
+function liveSend() {
+  if (!liveRef || liveTimer) return;
+  liveTimer = setTimeout(liveFlush, Math.max(0, liveNext - Date.now()));
+}
+async function liveFlush() {
+  liveTimer = 0; liveNext = Date.now() + LIVE_MS;
+  if (!board) return;
+  const ch = [];
+  for (const it of board.items) {
+    if (it.kind === 'stroke') continue;
+    const k = liveKey(it);
+    if (liveLast.get(it.id) !== k) { liveLast.set(it.id, k); ch.push([it.id, it.x, it.y, it.w, it.h]); }
+  }
+  let txt = null;
+  if (editing) { const e = els.get(editing), t = e && e.querySelector('[contenteditable=true]'); if (t) txt = [editing, t.classList.contains('ftitle') ? 'title' : 'text', t.innerText]; }
+  if (!ch.length && !txt) return;
+  try { const sealed = await sealCloud({ b: board.id, ch, txt }); await liveRef.set({ ...sealed, updated: Date.now(), device: DEVICE }); }
+  catch (e) { console.warn('live: lähetys ei onnistunut', e && (e.code || e.message)); }
+}
+async function liveReceive(d) {
+  if (d.device === DEVICE || Math.abs(Date.now() - d.updated) > 30000) return;
+  let m; try { m = await openCloud(d); } catch { return; }
+  if (!board || m.b !== board.id) return;
+  for (const [id, x, y, w, h] of m.ch || []) {
+    const it = find(id); if (!it || (drag && sel.has(id))) continue;
+    it.x = x; it.y = y; it.w = w; it.h = h; liveLast.set(id, liveKey(it));
+    const e = els.get(id); if (e) updateEl(e, it);
+  }
+  if (m.txt) {
+    const [id, field, val] = m.txt, it = find(id);
+    if (it && editing !== id) { if (field === 'title') it.title = val; else it.text = val; const e = els.get(id); if (e) updateEl(e, it); }
+  }
+  if (board.links.length) renderLinks();
 }
 function applyCloud(obj) {
   if (!obj || !obj.boards) return;
@@ -2375,7 +2417,7 @@ function applyCloud(obj) {
       ensureCalendar(board.items);
       board.divider = arrangeItems(board.items); render(); clearTimeout(saveTimer); persist();
     }
-    markSynced();
+    markSynced(); liveSeed();
   } finally { cloudApplying = false; }
 }
 async function startSync() {
@@ -2395,8 +2437,11 @@ async function startSync() {
       const d = sn.data();
       if (d.device === DEVICE || d.updated <= cloudSeen) return;
       cloudSeen = d.updated; save('geneesi-synkka', d.updated);
-      try { applyCloud(await openCloud(d)); toast('Päivitetty toiselta laitteelta'); } catch (e) { console.warn('synkronointi: avaus ei onnistunut', e); }
+      try { applyCloud(await openCloud(d)); } catch (e) { console.warn('synkronointi: avaus ei onnistunut', e); }
     }, e => console.warn('synkronointi: kuuntelu ei onnistunut', e && (e.code || e.message)));
+    liveRef = firebase.firestore().collection('geneesi').doc(await sha256hex(new Uint8Array([...syncRaw, ...new TextEncoder().encode('live')])));
+    liveSeed();
+    liveRef.onSnapshot(sn => { if (sn.exists) liveReceive(sn.data()); }, e => console.warn('live: kuuntelu ei onnistunut', e && (e.code || e.message)));
   } catch (e) { console.warn('synkronointi ei ole käytössä', e && (e.code || e.message)); }
 }
 
