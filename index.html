@@ -873,7 +873,11 @@ function frameMembers(f, exclude) {
 }
 /* every frame has the owner's screenshot ratio, 1436 x 681 (26.10.2026; replaced 16:9 the same day):
    try each column count, keep the smallest box of that ratio the contents fit in */
-const RATIO = 1436 / 681, IMG_W = 2 * G.CELL + G.GAP;
+/* on phones every frame is 1 : 1.5 (owner 27.10.2026) */
+const MOBILE_Q = matchMedia('(max-width: 800px)');
+const layoutMode = () => MOBILE_Q.matches ? 'mobile' : 'desktop';
+const ratio = () => MOBILE_Q.matches ? 1 / 1.5 : 1436 / 681;
+const IMG_W = 2 * G.CELL + G.GAP;
 function gridPlan(nSlots, images) {
   let best = null;
   const maxC = Math.max(2, Math.min(12, nSlots || 2));
@@ -887,12 +891,25 @@ function gridPlan(nSlots, images) {
     const cw = Math.max(nSlots ? c * STEP - G.GAP : 0, images.length ? Math.min(images.length, per) * (IMG_W + G.GAP) - G.GAP : 0);
     const contentH = notesH + (notesH && imgsH ? G.GAP : 0) + imgsH;
     let W = Math.max(G.PAD * 2 + cw, 560), H = G.TITLE + contentH + G.PAD;
-    if (W / H < RATIO) W = H * RATIO; else H = W / RATIO;
-    if (!best || W < best.W - 0.5) best = { c, per, W: Math.round(W), H: Math.round(W / RATIO) };
+    const R = ratio();
+    if (W / H < R) W = H * R; else H = W / R;
+    if (!best || W < best.W - 0.5) best = { c, per, W: Math.round(W), H: Math.round(W / R) };
   }
   return best;
 }
-function fit169(f) { if (f.w / f.h < RATIO) f.w = Math.round(f.h * RATIO); else f.h = Math.round(f.w / RATIO); }
+function fit169(f) { const R = ratio(); if (f.w / f.h < R) f.w = Math.round(f.h * R); else f.h = Math.round(f.w / R); }
+/* a board remembers which shape it was laid out for; switching between phone and desktop re-lays it */
+function ensureLayoutMode() {
+  if (!board) return;
+  const m = layoutMode();
+  if (board.layoutMode === m) return;
+  const first = !board.layoutMode;
+  board.layoutMode = m;
+  if (first && m === 'desktop') { persistSoon(); return; }
+  if (board.items.some(i => i.kind === 'frame')) { tidyItems(board.items); sel.clear(); render(); commit(); fitView(); }
+  persistSoon();
+}
+MOBILE_Q.addEventListener('change', () => ensureLayoutMode());
 function slotAt(f, x, y) {
   const cols = f.cols || G.COLS;
   const col = clamp(Math.floor((x - f.x - G.PAD + G.GAP / 2) / STEP), 0, cols - 1);
@@ -2013,6 +2030,7 @@ function unlock(payload) {
     routineSectionItems(payload.board.items, ROUTINE);
     importJson(new File([JSON.stringify(payload.board)], 'oletustaulu.json'));
   } else { migrateTidy(); ensureRoutineSection(); migrateBoards(); }
+  ensureLayoutMode();
   const f = new URLSearchParams(location.search).get('tuo');
   if (f && /^[\w.-]+\.json$/.test(f)) {
     history.replaceState(null, '', location.pathname);
