@@ -278,6 +278,14 @@
     border: 1px solid rgba(243,233,210,.45); border-radius: 999px; padding: 10px 20px; cursor: pointer;
   }
   @media (max-width: 800px) { #allBtn { display: block; } }
+  /* phone: save the routine as a lock-screen wallpaper (owner 1.11.2026) */
+  #wallBtn {
+    display: none; position: fixed; z-index: 12; right: 16px; bottom: 16px; width: 44px; height: 44px; padding: 0; cursor: pointer;
+    color: #f3e9d2; background: rgba(38, 33, 28, .9); border: 1px solid rgba(243,233,210,.45); border-radius: 50%;
+    place-items: center;
+  }
+  #wallBtn svg { width: 22px; height: 22px; }
+  @media (max-width: 800px) { #wallBtn { display: grid; } }
   #calnav {
     position: fixed; z-index: 12; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
     background: rgba(38, 33, 28, .85); border: 1px solid var(--line); border-radius: 999px; padding: 6px 8px;
@@ -328,6 +336,7 @@
 </div>
 <div id="box"></div>
 <button type="button" id="allBtn">Näytä kaikki</button>
+<button type="button" id="wallBtn" title="Tallenna rutiini lukitusnäytön taustakuvaksi" aria-label="Taustakuva"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
 <div id="calnav">
   <button type="button" id="calPrev" title="Edellinen kuukausi" aria-label="Edellinen kuukausi">‹</button>
   <input type="date" id="calDate" aria-label="Siirry päivään">
@@ -1806,6 +1815,36 @@ function exportPng() {
   }
   cv.toBlob(bl => { if (bl) download(fileName('png'), bl); else toast('Kuvan teko epäonnistui'); }, 'image/png');
 }
+/* the routine as a phone-sized picture for the lock screen: just the schedule, no clock colours or badges,
+   because a still picture would show them stale (owner 1.11.2026) */
+function exportWallpaper() {
+  const rf = board.items.find(i => i.kind === 'frame' && i.routine);
+  if (!rf) { toast('Rutiinia ei löytynyt'); return; }
+  const steps = frameMembers(rf).notes.filter(n => n.kind === 'note');
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.round(screen.width * dpr), H = Math.round(screen.height * dpr);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#1c1915'; c.fillRect(0, 0, W, H);
+  /* the top third stays free for the lock screen's own clock */
+  const top = H * 0.34, bottom = H * 0.95, side = W * 0.08;
+  const row = Math.min(W * 0.075, (bottom - top) / Math.max(1, steps.length));
+  const fs = row * 0.62, font = (w, s) => `${w} ${s}px Inter, system-ui, sans-serif`;
+  steps.forEach((n, i) => {
+    const y = top + i * row + row / 2;
+    c.textBaseline = 'middle';
+    c.fillStyle = 'rgba(243, 233, 210, .55)'; c.font = font(600, fs); c.textAlign = 'right';
+    const timeW = c.measureText('00:00').width;
+    c.fillText(n.tag || '', side + timeW, y);
+    c.fillStyle = '#f3e9d2'; c.font = font(500, fs); c.textAlign = 'left';
+    let t = (n.text || '').replace(/\s*\n\s*/g, ' · ').replace(/, · /g, ', ');
+    const maxW = W - side * 2 - timeW - fs;
+    while (t.length > 1 && c.measureText(t).width > maxW) t = t.slice(0, -2) + '…';
+    c.fillText(t, side + timeW + fs * 0.8, y);
+  });
+  cv.toBlob(bl => { if (bl) { download('rutiini-taustakuva.png', bl); toast('Tallennettu: aseta kuva lukitusnäytön taustakuvaksi'); } else toast('Kuvan teko epäonnistui'); }, 'image/png');
+}
+$('wallBtn').onclick = () => { if (board) exportWallpaper(); };
 function exportJson() {
   download(fileName('json'), new Blob([JSON.stringify({ ideataulu: 1, name: board.name, items: board.items, links: board.links }, null, 1)], { type: 'application/json' }));
 }
