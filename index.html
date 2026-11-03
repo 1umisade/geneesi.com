@@ -9,7 +9,7 @@
 <meta name="description" content="Lappu- ja ideataulu: ideoi, järjestä, äänestä, yhdistä ja vie">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=VT323&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #f3ede1;
@@ -287,7 +287,53 @@
     place-items: center;
   }
   #wallBtn svg { width: 22px; height: 22px; }
-  @media (max-width: 800px) { #wallBtn { display: grid; } }
+  @media (max-width: 800px) { #wallBtn { display: grid; right: 70px; } }
+
+  /* ---------- themes (owner 3.11.2026) ---------- */
+  #themeBtn {
+    position: fixed; z-index: 12; right: 16px; bottom: 16px; width: 44px; height: 44px; padding: 0; cursor: pointer; display: grid; place-items: center;
+    color: #f3e9d2; background: rgba(38, 33, 28, .9); border: 1px solid rgba(243,233,210,.45); border-radius: 50%;
+  }
+  #themeBtn svg { width: 22px; height: 22px; }
+  #themeMenu {
+    position: fixed; z-index: 13; right: 16px; bottom: 70px; display: none; flex-direction: column; gap: 4px; padding: 6px;
+    background: rgba(38, 33, 28, .96); border: 1px solid rgba(243,233,210,.35); border-radius: 12px;
+  }
+  #themeMenu.open { display: flex; }
+  #themeMenu button {
+    text-align: left; white-space: nowrap; color: #f3e9d2; background: none; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600;
+  }
+  #themeMenu button:hover { background: rgba(243,233,210,.1); }
+  #themeMenu button.on::before { content: '\2713  '; }
+
+  /* MU/TH/UR 6000, the Nostromo's computer in Alien (1979): green phosphor on black, block letters, scanlines */
+  html.th-muthur {
+    --g: #62ff8f; --gd: #1f7a3a;
+    --bg: #010702; --dot: #0a2410; --panel: #010702; --ink: var(--g); --muted: #3fae63; --line: var(--gd); --sel: var(--g); --note-ink: var(--g);
+  }
+  html.th-muthur body { font-family: 'VT323', 'Courier New', monospace; }
+  html.th-muthur .frame { background: rgba(0, 18, 5, .55) !important; border: 1px solid var(--gd); border-radius: 0; box-shadow: inset 0 0 18px rgba(98,255,143,.08); }
+  html.th-muthur .ftitle, html.th-muthur .freset { color: var(--g); text-transform: uppercase; letter-spacing: 3px; text-shadow: 0 0 6px rgba(98,255,143,.75); font-weight: 400; opacity: 1; }
+  html.th-muthur .note .bgw, html.th-muthur .note.unstarted .bgw { filter: none; }
+  /* each note keeps its clock or deadline colour, but only as a shade of green */
+  html.th-muthur .note .bg { border-radius: 0; filter: grayscale(1) brightness(.3) sepia(1) hue-rotate(75deg) saturate(4); box-shadow: inset 0 0 0 1px var(--gd); }
+  html.th-muthur .note.unstarted .bg { filter: grayscale(1) brightness(.16) sepia(1) hue-rotate(75deg) saturate(4); }
+  html.th-muthur .txt { color: var(--g); text-transform: uppercase; font-weight: 400; letter-spacing: 1px; text-shadow: 0 0 5px rgba(98,255,143,.8); }
+  html.th-muthur .tag { border-radius: 0; font-family: inherit; font-weight: 400; letter-spacing: 1px; filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(3); }
+  html.th-muthur .status { filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(5) brightness(1.4); opacity: .28; }
+  html.th-muthur #themeBtn, html.th-muthur #themeMenu, html.th-muthur #allBtn, html.th-muthur #wallBtn, html.th-muthur #toast {
+    background: #010702; color: var(--g); border: 1px solid var(--gd); border-radius: 0; text-shadow: 0 0 5px rgba(98,255,143,.7);
+  }
+  html.th-muthur #themeMenu button { color: var(--g); border-radius: 0; font-weight: 400; letter-spacing: 1px; text-transform: uppercase; }
+  html.th-muthur #divider { background: var(--gd); }
+  /* the CRT: scanlines, a dark edge and a faint flicker over everything */
+  html.th-muthur body::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,.3) 0 1px, transparent 1px 3px),
+                radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.6) 100%);
+    animation: muthurFlicker 7s infinite;
+  }
+  @keyframes muthurFlicker { 0%, 100% { opacity: .92; } 48% { opacity: 1; } 49% { opacity: .8; } 50% { opacity: 1; } }
   #calnav {
     position: fixed; z-index: 12; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
     background: rgba(38, 33, 28, .85); border: 1px solid var(--line); border-radius: 999px; padding: 6px 8px;
@@ -338,6 +384,8 @@
 </div>
 <div id="box"></div>
 <button type="button" id="allBtn">Näytä kaikki</button>
+<button type="button" id="themeBtn" title="Teemat" aria-label="Teemat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
+<div id="themeMenu" role="menu"></div>
 <button type="button" id="wallBtn" title="Tallenna rutiini lukitusnäytön taustakuvaksi" aria-label="Taustakuva"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
 <div id="calnav">
   <button type="button" id="calPrev" title="Edellinen kuukausi" aria-label="Edellinen kuukausi">‹</button>
@@ -687,7 +735,7 @@ function makeEl(it) {
 function fitText(e, it, force) {
   const t = e.querySelector('.txt');
   if (t.isContentEditable && !force) return;
-  const key = it.text + '|' + it.w + '|' + it.h + '|' + (it.shape || '') + '|' + (it.size || '');
+  const key = it.text + '|' + it.w + '|' + it.h + '|' + (it.shape || '') + '|' + (it.size || '') + '|' + document.documentElement.className;
   if (!force && t.dataset.fit === key) return;
   t.dataset.fit = force || !t.clientHeight ? '' : key;
   let size = it.kind === 'text' ? (it.size || 24) : clamp(Math.round(Math.min(it.w, it.h) * 0.24), 12, 44);
@@ -1512,6 +1560,7 @@ function endPointer(e) {
         const it = find(d.rid);
         if (it && it.kind !== 'frame') {
           const f = it.kind === 'note' || it.kind === 'text' ? frameOf(it) : null;
+          explode(it);
           removeIds([it.id]); if (f) reflowFrame(f); render(); commit(); toast('Poistettu. Kumoa: Ctrl + Z');
         }
       } else lastRight = { id: d.rid, t: now };
@@ -1703,6 +1752,55 @@ function applyTemplate(name) {
     F(o.x + 860, o.y + 70, 400, 720, 'Valmis', COLORS[3]);
   }
   sel.clear(); render(); commit(); fitView();
+}
+
+/* ---------- themes: the button in the bottom right (owner 3.11.2026); each device remembers its own ---------- */
+const THEMES = [{ id: '', name: 'Oletus' }, { id: 'muthur', name: 'MU/TH/UR 6000' }];
+function setTheme(id, greet) {
+  if (!THEMES.some(t => t.id === id)) id = '';
+  for (const t of THEMES) if (t.id) document.documentElement.classList.toggle('th-' + t.id, t.id === id);
+  save('teema', id);
+  for (const b of $('themeMenu').children) b.classList.toggle('on', b.dataset.t === id);
+  if (board) { render(); document.fonts.ready.then(() => render()); }
+  if (greet && id === 'muthur') toast('INTERFACE 2037 READY FOR INQUIRY');
+}
+for (const t of THEMES) {
+  const b = document.createElement('button'); b.type = 'button'; b.dataset.t = t.id; b.textContent = t.name;
+  b.onclick = () => { setTheme(t.id, true); $('themeMenu').classList.remove('open'); };
+  $('themeMenu').append(b);
+}
+$('themeBtn').onclick = e => { e.stopPropagation(); $('themeMenu').classList.toggle('open'); };
+document.addEventListener('pointerdown', e => { if (!e.target.closest('#themeMenu, #themeBtn')) $('themeMenu').classList.remove('open'); }, true);
+setTheme(load('teema', ''));
+
+/* ---------- a deleted note explodes (owner 3.11.2026) ---------- */
+function explode(it) {
+  const layer = $('noteLayer'); if (!layer || !layer.animate) return;
+  const cx = it.x + it.w / 2, cy = it.y + it.h / 2, s = Math.max(it.w, it.h);
+  const add = (css, kf, opt) => {
+    const d = document.createElement('div');
+    d.style.cssText = 'position:absolute;pointer-events:none;z-index:50;' + css;
+    layer.append(d);
+    d.animate(kf, opt).onfinish = () => d.remove();
+  };
+  /* flash */
+  add(`left:${cx - s}px;top:${cy - s}px;width:${2 * s}px;height:${2 * s}px;border-radius:50%;` +
+      'background:radial-gradient(circle,#fff6d0 0%,#ffd34d 25%,#FF8559 50%,rgba(255,133,89,0) 70%);',
+      [{ transform: 'scale(.15)', opacity: 1 }, { transform: 'scale(1)', opacity: .9, offset: .35 }, { transform: 'scale(1.25)', opacity: 0 }],
+      { duration: 520, easing: 'cubic-bezier(.2,.8,.3,1)' });
+  /* fragments of the note, plus sparks */
+  const col = it.kind === 'note' ? noteColor(it) : '#f3e9d2';
+  const fire = ['#ffd34d', '#ffb347', '#FF8559', '#fff1b8'];
+  for (let i = 0; i < 26; i++) {
+    const a = Math.random() * Math.PI * 2, dist = s * (0.6 + Math.random() * 1.1);
+    const bit = i < 12, z = bit ? s * (0.1 + Math.random() * 0.14) : s * (0.03 + Math.random() * 0.04);
+    const dx = Math.cos(a) * dist, dy = Math.sin(a) * dist + (bit ? s * 0.35 : 0), rot = (Math.random() - .5) * 720;
+    add(`left:${cx - z / 2}px;top:${cy - z / 2}px;width:${z}px;height:${z}px;border-radius:${bit ? 2 : 50}%;` +
+        `background:${bit ? col : fire[i % fire.length]};` + (bit ? 'box-shadow:0 2px 4px rgba(0,0,0,.25);' : `box-shadow:0 0 ${z}px ${fire[i % fire.length]};`),
+        [{ transform: 'translate(0,0) rotate(0deg) scale(1)', opacity: 1 },
+         { transform: `translate(${dx}px,${dy}px) rotate(${rot}deg) scale(${bit ? .6 : .2})`, opacity: 0 }],
+        { duration: 650 + Math.random() * 450, easing: 'cubic-bezier(.15,.7,.3,1)' });
+  }
 }
 
 /* ---------- export / import ---------- */
