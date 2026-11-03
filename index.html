@@ -319,6 +319,8 @@
   html.th-muthur .note .bg { border-radius: 0; filter: grayscale(1) brightness(.3) sepia(1) hue-rotate(75deg) saturate(4); box-shadow: inset 0 0 0 1px var(--gd); }
   html.th-muthur .note.unstarted .bg { filter: grayscale(1) brightness(.16) sepia(1) hue-rotate(75deg) saturate(4); }
   html.th-muthur .txt { color: var(--g); text-transform: uppercase; font-weight: 400; letter-spacing: 1px; text-shadow: 0 0 5px rgba(98,255,143,.8); }
+  /* while editing, show the real letters: saving reads innerText, which would otherwise store the capitals */
+  html.th-muthur [contenteditable=true] { text-transform: none !important; }
   html.th-muthur .tag { border-radius: 0; font-family: inherit; font-weight: 400; letter-spacing: 1px; filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(3); }
   html.th-muthur .status { filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(5) brightness(1.4); opacity: .28; }
   html.th-muthur #themeBtn, html.th-muthur #themeMenu, html.th-muthur #allBtn, html.th-muthur #wallBtn, html.th-muthur #toast {
@@ -932,10 +934,11 @@ function startEdit(id, frameTitle = false, cx, cy) {
   refit();
   const done = () => {
     t.removeEventListener('blur', done); t.removeEventListener('keydown', key); t.removeEventListener('input', refit);
+    /* read the text while it is still editable: a theme's capitals (text-transform) are off then */
+    const val = t.innerText.replace(/\n+$/, '');
     t.contentEditable = 'false'; editing = null;
     const it = find(id);
     if (it) {
-      const val = t.innerText.replace(/\n+$/, '');
       if (it.kind === 'frame') it.title = val.trim() || 'Kehys';
       else if (it.kind === 'text' && !val.trim()) removeIds([id]);
       else it.text = val;
@@ -943,8 +946,8 @@ function startEdit(id, frameTitle = false, cx, cy) {
     render(); commit();
   };
   const key = ev => {
-    /* Enter is only a line break (owner 27.10.2026); Esc or a click elsewhere finishes */
-    if (ev.key === 'Escape') { ev.preventDefault(); t.blur(); }
+    /* Enter saves, Shift + Enter is a line break (owner 3.11.2026); Esc or a click elsewhere also finishes */
+    if (ev.key === 'Escape' || (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing)) { ev.preventDefault(); t.blur(); if (editing === id) done(); }
     ev.stopPropagation();
   };
   t.addEventListener('blur', done); t.addEventListener('keydown', key); t.addEventListener('input', refit);
