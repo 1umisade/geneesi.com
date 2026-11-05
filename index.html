@@ -807,7 +807,8 @@ function updateEl(e, it) {
     tg.style.display = tagText(it) || tg.isContentEditable || tg.classList.contains('editing') ? '' : 'none';
     const st = e.querySelector('.status');
     if (st.dataset.s !== (it.status || '')) { st.dataset.s = it.status || ''; st.innerHTML = BADGES[it.status] || ''; }
-    st.style.display = BADGES[it.status] ? '' : 'none';
+    /* a note not started yet has no picture at all (owner 5.11.2026) */
+    st.style.display = BADGES[it.status] && (it.status || 'new') !== 'new' ? '' : 'none';
   }
   if (it.kind === 'text') e.querySelector('.txt').style.color = it.color && it.color !== COLORS[0] && it.color !== '#ffffff' ? darken(it.color) : '';
   e.classList.toggle('sel', s);
