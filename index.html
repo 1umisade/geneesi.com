@@ -307,6 +307,15 @@
     color: #f3e9d2; background: rgba(38, 33, 28, .9); border: 1px solid rgba(243,233,210,.45); border-radius: 50%;
   }
   #themeBtn svg { width: 22px; height: 22px; }
+  /* undo and redo, bottom left (owner 5.11.2026) */
+  #undoBtn, #redoBtn {
+    position: fixed; z-index: 12; bottom: 16px; width: 44px; height: 44px; padding: 0; cursor: pointer; display: grid; place-items: center;
+    color: #f3e9d2; background: rgba(38, 33, 28, .9); border: 1px solid rgba(243,233,210,.45); border-radius: 50%;
+  }
+  #undoBtn { left: 16px; }
+  #redoBtn { left: 70px; }
+  #undoBtn svg, #redoBtn svg { width: 22px; height: 22px; }
+  #undoBtn:disabled, #redoBtn:disabled { opacity: .35; cursor: default; }
   #themeMenu {
     position: fixed; z-index: 13; right: 16px; bottom: 70px; display: none; flex-direction: column; gap: 4px; padding: 6px;
     background: rgba(38, 33, 28, .96); border: 1px solid rgba(243,233,210,.35); border-radius: 12px;
@@ -341,7 +350,7 @@
   /* the lightning and the check mark keep their own colours at 50 % here too (owner 5.11.2026); a dark edge keeps the green text readable on them */
   html.th-muthur .status[data-s=doing], html.th-muthur .status[data-s=done] { filter: none; opacity: .5; }
   html.th-muthur .note:has(.status[data-s=doing]) .txt, html.th-muthur .note:has(.status[data-s=done]) .txt { text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 4px #000, 0 0 6px #000, 0 0 10px #000; }
-  html.th-muthur #themeBtn, html.th-muthur #themeMenu, html.th-muthur #allBtn, html.th-muthur #wallBtn, html.th-muthur #toast {
+  html.th-muthur #undoBtn, html.th-muthur #redoBtn, html.th-muthur #themeBtn, html.th-muthur #themeMenu, html.th-muthur #allBtn, html.th-muthur #wallBtn, html.th-muthur #toast {
     background: #010702; color: var(--g); border: 1px solid var(--gd); border-radius: 0; text-shadow: 0 0 5px rgba(98,255,143,.7);
   }
   html.th-muthur #themeMenu button { color: var(--g); border-radius: 0; font-weight: 400; letter-spacing: 1px; text-transform: uppercase; }
@@ -408,6 +417,8 @@
 <div id="box"></div>
 <button type="button" id="allBtn">Näytä kaikki</button>
 <button type="button" id="themeBtn" title="Teemat" aria-label="Teemat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
+<button type="button" id="undoBtn" title="Kumoa (Ctrl + Z)" aria-label="Kumoa" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7 4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 6 6"/></svg></button>
+<button type="button" id="redoBtn" title="Tee uudelleen" aria-label="Tee uudelleen" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 7 5 5-5 5"/><path d="M20 12H10a6 6 0 0 0-6 6"/></svg></button>
 <div id="themeMenu" role="menu"></div>
 <div id="noteMenu"><button type="button" id="noteDel">Poista</button></div>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="fosfori" color-interpolation-filters="sRGB"><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncR type="table" tableValues="0 .15 1"/><feFuncG type="table" tableValues="0 1 1"/><feFuncB type="table" tableValues="0 .4 1"/></feComponentTransfer></filter></svg>
@@ -897,7 +908,7 @@ function applyView() {
 }
 
 function updateButtons() {
-  $('undo').disabled = hi <= 0; $('redo').disabled = hi >= hist.length - 1;
+  $('undo').disabled = $('undoBtn').disabled = hi <= 0; $('redo').disabled = $('redoBtn').disabled = hi >= hist.length - 1;
   document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', b.dataset.c === color));
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === tool));
   vp.className = tool === 'select' ? '' : 'tool-' + tool;
@@ -2134,7 +2145,7 @@ document.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { tool =
 $('addNote').onclick = () => { const c = viewCenter(); addNote(c.x + (Math.random() - .5) * 60, c.y + (Math.random() - .5) * 60); };
 $('addFrame').onclick = () => { const c = viewCenter(); const f = addFrame(c.x - 280, c.y - 210); sel.clear(); sel.add(f.id); render(); commit(); };
 $('arrange').onclick = arrange;
-$('undo').onclick = undo; $('redo').onclick = redo;
+$('undo').onclick = $('undoBtn').onclick = undo; $('redo').onclick = $('redoBtn').onclick = redo;
 $('fit').onclick = fitView;
 $('zoomIn').onclick = () => { zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1.25); persistSoon(); };
 $('zoomOut').onclick = () => { zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 0.8); persistSoon(); };
