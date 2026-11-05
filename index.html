@@ -328,18 +328,19 @@
   /* each note keeps its clock or deadline colour, but only as a shade of green */
   html.th-muthur .note .bg { border-radius: 0; filter: grayscale(1) brightness(.3) sepia(1) hue-rotate(75deg) saturate(4); box-shadow: inset 0 0 0 1px var(--gd); }
   html.th-muthur .note.unstarted .bg { filter: grayscale(1) brightness(.16) sepia(1) hue-rotate(75deg) saturate(4); }
-  html.th-muthur .txt { color: var(--g); text-transform: uppercase; font-weight: 400; letter-spacing: 1px; text-shadow: 0 0 5px rgba(98,255,143,.8); }
+  html.th-muthur .txt { color: var(--g); text-transform: uppercase; font-weight: 400; letter-spacing: 1px; text-shadow: 0 0 2px #000, 0 0 3px #000, 0 0 6px rgba(98,255,143,.8); }
   /* while editing, show the real letters: saving reads innerText, which would otherwise store the capitals */
   html.th-muthur [contenteditable=true] { text-transform: none !important; }
   html.th-muthur .tag { border-radius: 0; font-family: inherit; font-weight: 400; letter-spacing: 1px; filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(3); }
-  html.th-muthur .status { filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(5) brightness(1.4); opacity: .28; }
+  /* badges and pictures: black stays black, the middle tones turn green, white stays white (the #fosfori filter in the page) */
+  html.th-muthur .status { filter: url(#fosfori); opacity: .42; }
   html.th-muthur #themeBtn, html.th-muthur #themeMenu, html.th-muthur #allBtn, html.th-muthur #wallBtn, html.th-muthur #toast {
     background: #010702; color: var(--g); border: 1px solid var(--gd); border-radius: 0; text-shadow: 0 0 5px rgba(98,255,143,.7);
   }
   html.th-muthur #themeMenu button { color: var(--g); border-radius: 0; font-weight: 400; letter-spacing: 1px; text-transform: uppercase; }
   html.th-muthur #divider { background: var(--gd); }
   /* pictures too: green and white, like everything else on the screen */
-  html.th-muthur .imgitem img { filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(3) contrast(1.1); border-radius: 0; box-shadow: 0 0 0 1px var(--gd); }
+  html.th-muthur .imgitem img { filter: url(#fosfori); border-radius: 0; box-shadow: 0 0 0 1px var(--gd); }
   html.th-muthur #noteMenu button { background: #010702; color: var(--g); border: 1px solid var(--gd); border-radius: 0; font-weight: 400; letter-spacing: 1px; text-transform: uppercase; text-shadow: 0 0 5px rgba(98,255,143,.7); }
   /* the CRT: scanlines, a dark edge and a faint flicker over everything */
   html.th-muthur body::after {
@@ -402,6 +403,7 @@
 <button type="button" id="themeBtn" title="Teemat" aria-label="Teemat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
 <div id="themeMenu" role="menu"></div>
 <div id="noteMenu"><button type="button" id="noteDel">Poista</button></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="fosfori" color-interpolation-filters="sRGB"><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncR type="table" tableValues="0 .15 1"/><feFuncG type="table" tableValues="0 1 1"/><feFuncB type="table" tableValues="0 .4 1"/></feComponentTransfer></filter></svg>
 <button type="button" id="wallBtn" title="Tallenna rutiini lukitusnäytön taustakuvaksi" aria-label="Taustakuva"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
 <div id="calnav">
   <button type="button" id="calPrev" title="Edellinen kuukausi" aria-label="Edellinen kuukausi">‹</button>
