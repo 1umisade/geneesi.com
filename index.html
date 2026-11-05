@@ -151,7 +151,7 @@
     position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; cursor: nwse-resize;
     border-radius: 3px; background: var(--sel); opacity: 0; pointer-events: auto;
   }
-  .frame .rs { right: 4px; bottom: 4px; }
+  .frame .rs { display: none; }   /* sections are a fixed size: no corner to stretch them by accident (owner 5.11.2026) */
   /* move handle in the top-left corner: drag it to move the note at any time (owner 27.10.2026) */
   .mh {
     position: absolute; left: -4px; top: -4px; width: 26px; height: 26px; cursor: move; z-index: 3;
