@@ -966,6 +966,7 @@ function startEdit(id, frameTitle = false, cx, cy) {
     if (it) {
       if (it.kind === 'frame') it.title = val.trim() || 'Kehys';
       else if (it.kind === 'text' && !val.trim()) removeIds([id]);
+      else if (it.kind === 'note' && !val.trim()) { deleteWithBoom(it); return; }   /* an empty note is destroyed (owner 5.11.2026) */
       else it.text = val;
     }
     render(); commit();
@@ -1385,6 +1386,15 @@ function deleteWithBoom(it) {
   const f = it.kind === 'note' || it.kind === 'text' ? frameOf(it) : null;
   explode(it);
   removeIds([it.id]); if (f) reflowFrame(f); render(); commit(); toast(recentTouch() ? 'Poistettu' : 'Poistettu. Kumoa: Ctrl + Z');
+}
+/* notes that are already empty go too, when the board opens or arrives from another device */
+function purgeEmptyNotes() {
+  if (!board) return;
+  const gone = board.items.filter(i => i.kind === 'note' && i.id !== editing && !(i.text || '').trim());
+  if (!gone.length) return;
+  const frames = new Set(gone.map(i => frameOf(i)).filter(Boolean));
+  removeIds(gone.map(i => i.id));
+  for (const f of frames) reflowFrame(f);
 }
 function showNoteMenu(id) {
   const el = els.get(id), m = $('noteMenu'); if (!el) return;
@@ -2653,6 +2663,7 @@ function applyCloud(obj) {
       if (b) save('ideataulu-' + keep, b);
       openBoard(keep);
       ensureLayoutMode();
+      purgeEmptyNotes();
       ensureCalendar(board.items);
       board.divider = arrangeItems(board.items); render(); clearTimeout(saveTimer); persist();
     }
@@ -2807,6 +2818,7 @@ function unlock(payload) {
     importJson(new File([JSON.stringify(payload.board)], 'oletustaulu.json'));
   } else { migrateTidy(); ensureRoutineSection(); migrateBoards(); }
   ensureLayoutMode();
+  purgeEmptyNotes();
   if (board) {
     $('calDate').value = isoDay(new Date());
     save('kalenteri-ankkuri', monthKey(new Date()));
