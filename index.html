@@ -337,7 +337,9 @@
   html.th-muthur .tag { border-radius: 0; font-family: inherit; font-weight: 400; letter-spacing: 1px; filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(3); }
   /* badges and pictures: black stays black, the middle tones turn green, white stays white (the #fosfori filter in the page) */
   html.th-muthur .status { filter: url(#fosfori); opacity: .42; }
-  html.th-muthur .status[data-s=doing] { opacity: 1; }
+  /* the lightning keeps its real colours in this theme too (owner 5.11.2026); a dark edge keeps the green text readable on it */
+  html.th-muthur .status[data-s=doing] { filter: none; opacity: 1; }
+  html.th-muthur .note:has(.status[data-s=doing]) .txt { text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 4px #000, 0 0 6px #000, 0 0 10px #000; }
   html.th-muthur #themeBtn, html.th-muthur #themeMenu, html.th-muthur #allBtn, html.th-muthur #wallBtn, html.th-muthur #toast {
     background: #010702; color: var(--g); border: 1px solid var(--gd); border-radius: 0; text-shadow: 0 0 5px rgba(98,255,143,.7);
   }
