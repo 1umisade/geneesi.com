@@ -77,6 +77,16 @@
   .freset:hover { opacity: 1; }
   .ftitle[contenteditable=true] { cursor: text; background: rgba(255,255,255,.5); border-radius: 12px 12px 0 0; }
 
+  html, body { overscroll-behavior: none; }
+  #viewport { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  /* a note picked up by a long press */
+  .item.lifted { scale: 1.06; opacity: .85; z-index: 5; }
+  #noteMenu { position: fixed; z-index: 14; display: none; }
+  #noteMenu.open { display: block; }
+  #noteMenu button {
+    font: inherit; font-weight: 600; font-size: 15px; color: #f3e9d2; background: rgba(38, 33, 28, .96);
+    border: 1px solid rgba(243,233,210,.45); border-radius: 999px; padding: 10px 20px; cursor: pointer;
+  }
   #viewport, #viewport * { -webkit-user-select: none; user-select: none; }
   #viewport [contenteditable=true], #viewport .tag input { -webkit-user-select: text; user-select: text; }
   .item { position: absolute; cursor: move; transition: left .18s ease, top .18s ease; }
@@ -328,6 +338,9 @@
   }
   html.th-muthur #themeMenu button { color: var(--g); border-radius: 0; font-weight: 400; letter-spacing: 1px; text-transform: uppercase; }
   html.th-muthur #divider { background: var(--gd); }
+  /* pictures too: green and white, like everything else on the screen */
+  html.th-muthur .imgitem img { filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(3) contrast(1.1); border-radius: 0; box-shadow: 0 0 0 1px var(--gd); }
+  html.th-muthur #noteMenu button { background: #010702; color: var(--g); border: 1px solid var(--gd); border-radius: 0; font-weight: 400; letter-spacing: 1px; text-transform: uppercase; text-shadow: 0 0 5px rgba(98,255,143,.7); }
   /* the CRT: scanlines, a dark edge and a faint flicker over everything */
   html.th-muthur body::after {
     content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
@@ -388,6 +401,7 @@
 <button type="button" id="allBtn">Näytä kaikki</button>
 <button type="button" id="themeBtn" title="Teemat" aria-label="Teemat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
 <div id="themeMenu" role="menu"></div>
+<div id="noteMenu"><button type="button" id="noteDel">Poista</button></div>
 <button type="button" id="wallBtn" title="Tallenna rutiini lukitusnäytön taustakuvaksi" aria-label="Taustakuva"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></button>
 <div id="calnav">
   <button type="button" id="calPrev" title="Edellinen kuukausi" aria-label="Edellinen kuukausi">‹</button>
@@ -932,8 +946,9 @@ function startEdit(id, frameTitle = false, cx, cy) {
   /* while typing, the text keeps shrinking or growing to fit the note */
   const refit = () => { const it = find(id); if (it && (it.kind === 'note' || it.kind === 'text') && !frameTitle) fitText(e, it, true); if (typeof liveSend === 'function') liveSend(); };
   refit();
+  let shiftHeld = false;
   const done = () => {
-    t.removeEventListener('blur', done); t.removeEventListener('keydown', key); t.removeEventListener('input', refit);
+    t.removeEventListener('blur', done); t.removeEventListener('keydown', key); t.removeEventListener('input', refit); t.removeEventListener('beforeinput', before);
     /* read the text while it is still editable: a theme's capitals (text-transform) are off then */
     const val = t.innerText.replace(/\n+$/, '');
     t.contentEditable = 'false'; editing = null;
@@ -945,12 +960,23 @@ function startEdit(id, frameTitle = false, cx, cy) {
     }
     render(); commit();
   };
+  /* some phone keyboards do not report Enter as a key at all: they only ask to insert a new line */
+  const before = ev => {
+    if (ev.inputType === 'insertParagraph' || (ev.inputType === 'insertLineBreak' && !shiftHeld)) { ev.preventDefault(); t.blur(); if (editing === id) done(); }
+  };
   const key = ev => {
+    shiftHeld = ev.shiftKey;
     /* Enter saves, Shift + Enter is a line break (owner 3.11.2026); Esc or a click elsewhere also finishes */
     if (ev.key === 'Escape' || (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing)) { ev.preventDefault(); t.blur(); if (editing === id) done(); }
     ev.stopPropagation();
   };
-  t.addEventListener('blur', done); t.addEventListener('keydown', key); t.addEventListener('input', refit);
+  t.addEventListener('blur', done); t.addEventListener('keydown', key); t.addEventListener('input', refit); t.addEventListener('beforeinput', before);
+  /* a phone keyboard must not cover the note being edited */
+  if (recentTouch() && window.visualViewport) setTimeout(() => {
+    if (editing !== id) return;
+    const r = e.getBoundingClientRect(), vv = visualViewport, over = r.bottom + 12 - (vv.offsetTop + vv.height);
+    if (over > 0) { board.view.y -= over; applyView(); }
+  }, 400);
 }
 
 const toLocalInput = ts => { const d = new Date(ts); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
@@ -984,6 +1010,8 @@ function startTagEdit(id) {
   });
   inp.addEventListener('blur', () => close(true));
   inp.addEventListener('pointerdown', ev => ev.stopPropagation());
+  /* on a touch screen the picker is a dialog: open it right away, and its OK saves */
+  if (recentTouch()) { inp.addEventListener('change', () => close(true)); try { inp.showPicker(); } catch { } }
 }
 
 /* ---------- flowing frame grids ---------- */
@@ -1336,6 +1364,27 @@ function beginMove(id, w, shift) {
 const pointers = new Map();
 let lastRight = { id: null, t: 0 }, clickTimer = null, clickId = null, editDrag = null;
 /* one click cycles the badge, a double click edits the text (owner 27.10.2026) */
+/* ---------- touch screens (owner 5.11.2026): tap cycles the badge, double tap edits, long press picks a note up
+   or, released without moving, offers delete; double tap on empty space makes a note ---------- */
+var lastTouchAt = 0, longTimer = 0, lastBgTap = { t: 0, x: 0, y: 0 };
+const LONG_MS = 450, TOUCH_SLOP = 10;
+const recentTouch = () => Date.now() - lastTouchAt < 1500;
+const slop = e => e.pointerType === 'touch' ? TOUCH_SLOP : 3;
+function unlift() { for (const el of document.querySelectorAll('.item.lifted')) el.classList.remove('lifted'); }
+function deleteWithBoom(it) {
+  const f = it.kind === 'note' || it.kind === 'text' ? frameOf(it) : null;
+  explode(it);
+  removeIds([it.id]); if (f) reflowFrame(f); render(); commit(); toast(recentTouch() ? 'Poistettu' : 'Poistettu. Kumoa: Ctrl + Z');
+}
+function showNoteMenu(id) {
+  const el = els.get(id), m = $('noteMenu'); if (!el) return;
+  m.dataset.id = id; m.classList.add('open');
+  const r = el.getBoundingClientRect(), mw = m.offsetWidth, mh = m.offsetHeight;
+  m.style.left = clamp(r.left + r.width / 2 - mw / 2, 8, innerWidth - mw - 8) + 'px';
+  m.style.top = (r.top - mh - 8 > 8 ? r.top - mh - 8 : Math.min(r.bottom + 8, innerHeight - mh - 8)) + 'px';
+}
+$('noteDel').onclick = () => { const m = $('noteMenu'), it = find(m.dataset.id); m.classList.remove('open'); if (it) deleteWithBoom(it); };
+document.addEventListener('pointerdown', e => { if (!e.target.closest('#noteMenu')) $('noteMenu').classList.remove('open'); }, true);
 function noteClick(id, e) {
   const it = find(id);
   if (it && it.kind === 'note') {
@@ -1346,7 +1395,7 @@ function noteClick(id, e) {
         clickTimer = null;
         const n = find(clickId); if (!n) return;
         const k = CYCLE.indexOf(n.status); n.status = CYCLE[(k + 1) % CYCLE.length]; render(); commit();
-      }, 260);
+      }, recentTouch() ? 350 : 260);
     }
   } else if (it && it.kind === 'text') startEdit(it.id, false, e.clientX, e.clientY);
 }
@@ -1376,6 +1425,7 @@ function framedContents(frame) {
 vp.addEventListener('contextmenu', e => e.preventDefault());
 
 vp.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch') lastTouchAt = Date.now();
   if (e.target.isContentEditable) {
     const el = e.target.closest('.item');
     if (el && editing === el.dataset.id && e.button === 0) editDrag = { id: el.dataset.id, sx: e.clientX, sy: e.clientY, pid: e.pointerId };
@@ -1390,7 +1440,7 @@ vp.addEventListener('pointerdown', e => {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 2) {
     const [p1, p2] = [...pointers.values()];
-    drag = null; $('box').style.display = 'none';
+    drag = null; $('box').style.display = 'none'; clearTimeout(longTimer); unlift();
     pinch = { d: Math.hypot(p1.x - p2.x, p1.y - p2.y), mx: (p1.x + p2.x) / 2, my: (p1.y + p2.y) / 2 };
     return;
   }
@@ -1409,7 +1459,11 @@ vp.addEventListener('pointerdown', e => {
     const it = find(h.id), f = it && (it.kind === 'note' || it.kind === 'text') ? frameOf(it) : null;
     removeIds([h.id]); if (f) reflowFrame(f); render(); commit(); toast('Poistettu. Kumoa: Ctrl + Z'); return;
   }
-  if (h.type === 'tag' && e.button === 0) { startTagEdit(h.id); return; }
+  if (h.type === 'tag' && e.button === 0) {
+    /* a finger opens the picker when it lifts: browsers allow that only then, and a pan may start here */
+    if (e.pointerType === 'touch') { drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, tagTap: h.id }; vp.classList.add('panning'); return; }
+    startTagEdit(h.id); return;
+  }
   if (h.type === 'cycle') {
     const it = find(h.id);
     if (it) { const k = CYCLE.indexOf(it.status); it.status = CYCLE[(k + 1) % CYCLE.length]; render(); commit(); }
@@ -1438,7 +1492,21 @@ vp.addEventListener('pointerdown', e => {
     if (locked) {
       /* not being edited: the note stays put, a drag pans the board, a click still works */
       drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: board.view.x, vy: board.view.y, moved: false, clickItem: h.id, shift: e.shiftKey };
-      vp.classList.add('panning'); return;
+      vp.classList.add('panning');
+      if (e.pointerType === 'touch') {
+        const d = drag, id = h.id;
+        clearTimeout(longTimer);
+        longTimer = setTimeout(() => {
+          if (drag !== d || d.moved || pointers.size !== 1) return;
+          vp.classList.remove('panning');
+          const p = pointers.values().next().value;
+          beginMove(id, toWorld(p.x, p.y), false);
+          drag.longPress = true;
+          const el = els.get(id); if (el) el.classList.add('lifted');
+          if (navigator.vibrate) navigator.vibrate(15);
+        }, LONG_MS);
+      }
+      return;
     }
     beginMove(h.id, w, e.shiftKey);
     return;
@@ -1458,7 +1526,7 @@ vp.addEventListener('pointerdown', e => {
 
 document.addEventListener('pointermove', e => {
   if (!editDrag || e.pointerId !== editDrag.pid) return;
-  if (Math.hypot(e.clientX - editDrag.sx, e.clientY - editDrag.sy) < 6) return;
+  if (Math.hypot(e.clientX - editDrag.sx, e.clientY - editDrag.sy) < (e.pointerType === 'touch' ? 14 : 6)) return;
   const id = editDrag.id, start = toWorld(editDrag.sx, editDrag.sy);
   editDrag = null;
   getSelection().removeAllRanges();
@@ -1484,13 +1552,20 @@ vp.addEventListener('pointermove', e => {
   if (!drag) return;
   const w = toWorld(e.clientX, e.clientY);
   if (drag.type === 'pan') {
+    /* a finger always trembles a little: a tap must stay a tap, and a pan starts smoothly from where it was noticed */
+    const touch = e.pointerType === 'touch';
+    if (!drag.moved) {
+      if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > slop(e)) {
+        drag.moved = true; clearTimeout(longTimer);
+        if (touch) { drag.sx = e.clientX; drag.sy = e.clientY; }
+      } else if (touch) return;
+    }
     const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
-    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
     board.view.x = drag.vx + dx; board.view.y = drag.vy + dy; applyView(); return;
   }
   if (drag.type === 'move') {
     const dx = w.x - drag.sx, dy = w.y - drag.sy;
-    if (!drag.moved && Math.hypot(dx, dy) * board.view.z < 3) return;
+    if (!drag.moved && Math.hypot(dx, dy) * board.view.z < slop(e)) return;
     drag.pending = w;
     if (!drag.raf) drag.raf = requestAnimationFrame(() => applyMove(drag));
     return;
@@ -1540,11 +1615,14 @@ vp.addEventListener('pointermove', e => {
 
 function endPointer(e) {
   pointers.delete(e.pointerId);
+  clearTimeout(longTimer); unlift();
   if (pinch) { if (pointers.size < 2) { pinch = null; persistSoon(); } return; }
   if (!drag) return;
   const d = drag; drag = null;
   vp.classList.remove('panning');
   if (d.type === 'pan') {
+    if (e.type === 'pointercancel') d.moved = true;   /* the system took the finger: that was no tap */
+    if (!d.moved && d.tagTap) { startTagEdit(d.tagTap); return; }
     if (!d.moved && d.clickItem) {
       if (d.shift) { sel.has(d.clickItem) ? sel.delete(d.clickItem) : sel.add(d.clickItem); render(); return; }
       sel.clear(); sel.add(d.clickItem); render();
@@ -1562,9 +1640,7 @@ function endPointer(e) {
         lastRight = { id: null, t: 0 };
         const it = find(d.rid);
         if (it && it.kind !== 'frame') {
-          const f = it.kind === 'note' || it.kind === 'text' ? frameOf(it) : null;
-          explode(it);
-          removeIds([it.id]); if (f) reflowFrame(f); render(); commit(); toast('Poistettu. Kumoa: Ctrl + Z');
+          deleteWithBoom(it);
         }
       } else lastRight = { id: d.rid, t: now };
       return;
@@ -1573,6 +1649,16 @@ function endPointer(e) {
       const it = find(d.cycle);
       if (it && it.kind === 'note') { const k = CYCLE.indexOf(it.status); it.status = CYCLE[(k + 1) % CYCLE.length]; sel.clear(); sel.add(it.id); render(); commit(); }
       return;
+    }
+    if (!d.moved && d.clear && e.pointerType === 'touch' && tool === 'select') {
+      const now = Date.now();
+      if (now - lastBgTap.t < 350 && Math.hypot(e.clientX - lastBgTap.x, e.clientY - lastBgTap.y) < 40) {
+        lastBgTap.t = 0;
+        const w = toWorld(e.clientX, e.clientY);
+        addNote(w.x, w.y);
+        return;
+      }
+      lastBgTap = { t: now, x: e.clientX, y: e.clientY };
     }
     if (!d.moved && d.clear && sel.size) { sel.clear(); render(); }
     persistSoon(); return;
@@ -1591,6 +1677,7 @@ function endPointer(e) {
       }
       commit(); return;
     }
+    if (d.longPress) { if (e.type !== 'pointercancel') showNoteMenu(d.clickId); return; }
     if (!d.shift) {
       sel.clear(); sel.add(d.clickId); render();
       noteClick(d.clickId, e);
@@ -1634,7 +1721,7 @@ vp.addEventListener('dblclick', e => {
     if (it.kind === 'note') return;
     startEdit(it.id); return;
   }
-  if (h.type === 'bg' && tool === 'select') { const w = toWorld(e.clientX, e.clientY); addNote(w.x, w.y); }
+  if (h.type === 'bg' && tool === 'select' && !recentTouch()) { const w = toWorld(e.clientX, e.clientY); addNote(w.x, w.y); }
 });
 
 function zoomAt(cx, cy, f) {
