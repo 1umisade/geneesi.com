@@ -384,6 +384,10 @@
   #lockPw:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   #lockBtn { justify-self: start; padding: 9px 18px; }
   #lockErr { margin: 0; min-height: 1.2em; color: #c9553d; font-size: 14px; }
+  /* a public link anyone can copy without the password (owner 9.11.2026) */
+  #shareRow { display: flex; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+  #shareUrl { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  #shareBtn { padding: 8px 14px; }
 </style>
 </head>
 <body>
@@ -393,6 +397,10 @@
     <input type="password" id="lockPw" placeholder="Salasana" aria-label="Salasana" autofocus>
     <button type="submit" class="tb on" id="lockBtn">Avaa</button>
     <p id="lockErr"></p>
+    <div id="shareRow">
+      <input type="text" id="shareUrl" readonly aria-label="Linkki" value="https://mega.nz/file/PQkliAoa#LLzZmKamjf1rsixZW4vV7a1oO4rBSQz9JVmlKWXP7Ho">
+      <button type="button" class="tb" id="shareBtn">Kopioi</button>
+    </div>
   </form>
 </div>
 <div id="viewport">
@@ -2776,6 +2784,13 @@ $('calDate').addEventListener('change', () => { const v = $('calDate').value; if
 $('calDate').addEventListener('keydown', e => e.stopPropagation());
 
 /* ---------- lock: the board and routine live only in the encrypted file ---------- */
+$('shareUrl').onfocus = () => $('shareUrl').select();
+$('shareBtn').onclick = async () => {
+  const u = $('shareUrl');
+  try { await navigator.clipboard.writeText(u.value); } catch { u.select(); document.execCommand('copy'); }
+  $('shareBtn').textContent = 'Kopioitu';
+  setTimeout(() => { $('shareBtn').textContent = 'Kopioi'; }, 1500);
+};
 /* the browser remembers the derived key (not the password) after the first unlock; a new salt asks again */
 const b64 = x => Uint8Array.from(atob(x), c => c.charCodeAt(0));
 const tob64 = u => btoa(String.fromCharCode(...new Uint8Array(u)));
